@@ -1,1 +1,14 @@
-/target
+# Node & Build artifacts
+node_modules
+dist
+dist-ssr
+*.local
+
+# Tauri & Rust
+src-tauri/target
+target
+Cargo.lock
+
+# Logs & temp
+*.log
+.DS_Store

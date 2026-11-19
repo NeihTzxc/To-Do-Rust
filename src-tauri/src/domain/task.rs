@@ -1,5 +1,6 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use serde_repr::{Deserialize_repr, Serialize_repr};
 use std::fmt;
 use uuid::Uuid;
 
@@ -54,7 +55,8 @@ impl fmt::Display for TaskStatus {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize_repr, Deserialize_repr)]
+#[repr(i64)]
 pub enum Priority {
     Low = 1,
     Medium = 2,
@@ -136,7 +138,7 @@ impl Task {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateTaskInput {
     pub title: String,
     pub description: Option<String>,
@@ -144,7 +146,7 @@ pub struct CreateTaskInput {
     pub due_date: Option<i64>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateTaskInput {
     pub id: String,
     pub title: String,

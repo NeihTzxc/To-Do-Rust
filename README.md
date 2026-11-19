@@ -1,30 +1,28 @@
-# 📝 Personal Task Manager (Rust Desktop)
+# 📝 TickTask - Personal Task Manager (Tauri v2 + Vue 3 + Rust SQLite)
 
-Ứng dụng Desktop quản lý công việc cá nhân được viết hoàn toàn bằng ngôn ngữ **Rust**, chạy trên hệ điều hành **Ubuntu 24.04** (và các bản phân phối Linux khác) theo kiến trúc **Local-first** và **Repository Pattern**, được thiết kế sẵn sàng để mở rộng đồng bộ hai chiều lên **Supabase (PostgreSQL)**.
+Ứng dụng Desktop quản lý công việc cá nhân phong cách **TickTick**, được xây dựng trên nền tảng **Tauri v2**, **Vue 3 (TypeScript)**, **Tailwind CSS** và **Rust SQLite Local-first (Repository Pattern)**.
 
 ---
 
 ## 🌟 Điểm nổi bật & Tính năng chính
 
-- **Kiến trúc Local-first (Offline-first):**
-  - Dữ liệu được lưu trữ cục bộ tại máy tính người dùng bằng **SQLite** (`sqlx` runtime) theo chuẩn đường dẫn **XDG Linux** (`~/.local/share/rust-task-mgr/tasks.db`).
-  - Tự động tạo thư mục và tự chạy migration (`sqlx::migrate!()`) ngay khi ứng dụng khởi chạy.
-- **Sẵn sàng đồng bộ Cloud (Supabase / PostgreSQL):**
-  - Schema được trang bị sẵn UUID v7, mốc thời gian Unix timestamp tính bằng mili-giây (`created_at`, `updated_at`) phục vụ thuật toán **Last-Write-Wins (LWW)**.
-  - Sử dụng cơ chế **Xóa mềm (Soft Delete - `deleted_at`)** và trạng thái đồng bộ (`sync_status: 'pending' | 'synced'`) giúp việc đồng bộ 2 chiều không bị mất dữ liệu.
-- **Chế độ xem linh hoạt (Dual View Modes):**
-  - 📊 **Bảng Kanban (3 cột):** Cần làm (`todo`), Đang làm (`in_progress`), Hoàn thành (`done`). Hỗ trợ **Kéo và Thả (Drag & Drop)** native của `egui` cùng các phím mũi tên chuyển cột nhanh 1-click (`←` / `→`).
-  - 📋 **Danh sách truyền thống (List View):** Lọc theo *Tất cả*, *Đang làm*, *Đã xong*, checkbox đánh dấu hoàn thành (tiêu đề gạch ngang), badge mức độ ưu tiên.
-- **Nhập việc nhanh chóng:**
-  - Ô nhập công việc hỗ trợ phím **Enter** để thêm tức thì, chọn mức độ ưu tiên (*Low / Medium / High*) và nút mở rộng nhập mô tả chi tiết.
-- **Tìm kiếm & Bộ lọc tức thời:**
-  - Lọc công việc theo từ khóa tiêu đề hoặc mô tả trong thời gian thực.
-- **Hiển thị tiếng Việt hoàn hảo:**
-  - Tự động nạp font hệ thống Ubuntu (`Noto Sans`, `DejaVu Sans`) vào `egui::FontDefinitions`, khắc phục triệt để lỗi ô vuông font (tofu).
-- **Giao diện mượt mà & Non-blocking:**
-  - Render đồ họa thuần GPU/CPU bằng `eframe` / `egui` (không dùng WebView nặng nề).
-  - Tầng dữ liệu chạy trên luồng nền **Tokio Async Runtime**, giao tiếp với UI thông qua channel (`tokio::sync::mpsc` và `std::sync::mpsc`), không bao giờ gây đơ hay drop frame khi đọc/ghi đĩa.
-  - Thiết kế co giãn linh hoạt (**Responsive Layout**), tự động ngắt dòng khi thu hẹp cửa sổ.
+- **Kiến trúc Local-first (Offline-first & Sẵn sàng Supabase):**
+  - Tầng Backend Rust lưu trữ dữ liệu cục bộ bằng **SQLite** (`sqlx` runtime query + migration tự động tại `~/.local/share/rust-task-mgr/tasks.db`).
+  - Định danh bằng **UUID v7**, mốc thời gian Unix timestamp tính bằng mili-giây (`created_at`, `updated_at`) phục vụ thuật toán Last-Write-Wins (LWW).
+  - Sử dụng cơ chế **Xóa mềm (Soft Delete - `deleted_at`)** và trạng thái đồng bộ (`sync_status: 'pending' | 'synced'`) sẵn sàng kết nối và đồng bộ 2 chiều lên Supabase (PostgreSQL).
+- **Giao diện 3 Cột Hiện đại (Chuẩn UI/UX TickTick):**
+  - **Cột 1 — Smart Sidebar (rộng ~220px, có thể thu gọn):**
+    - Bộ lọc thông minh kèm số đếm (badge) theo thời gian thực: *Tất cả công việc*, *Hôm nay & Quá hạn*, *Ưu tiên cao*, *Đã hoàn thành*.
+    - Nút chuyển giao diện **Sáng / Tối (Dark Mode Slate/Zinc dịu mắt)**.
+    - Trạng thái SQLite Local-first ở chân sidebar (*Chờ đồng bộ: X task*).
+  - **Cột 2 — Khu vực làm việc chính (Linh hoạt List View & Kanban View):**
+    - **Quick Add Input (Đặc trưng TickTick):** Thanh nhập liệu nổi bật phía trên, gõ tên việc nhấn `Enter` để lưu ngay; tích hợp nút chọn nhanh **Độ ưu tiên (Cờ màu: Xám / Xanh / Vàng / Đỏ)** và **Ngày hạn (Hôm nay / Ngày mai / Chọn ngày)**.
+    - **Chế độ List View:** Task hiển thị dạng dòng với checkbox tròn đổi màu viền theo mức độ ưu tiên; phân nhóm thông minh theo `Đang thực hiện`, `Cần làm` và mục `Đã hoàn thành` có thể thu gọn/mở rộng.
+    - **Chế độ Kanban View:** 3 cột đều nhau (`Cần làm`, `Đang làm`, `Hoàn thành`) hỗ trợ kéo-thả **HTML5 Drag & Drop** mượt mà, tự động cập nhật trạng thái xuống SQLite.
+    - **Header Bar:** Tiêu đề danh mục, ô tìm kiếm nhanh (Search) và nút chuyển chế độ xem 1-click.
+  - **Cột 3 — Task Detail Drawer (rộng ~320px):**
+    - Mở khi click vào bất kỳ task nào; cho phép chỉnh sửa trực tiếp với cơ chế **Auto-save (debounce 400ms / on blur)**.
+    - Sửa tiêu đề, mô tả/ghi chú chi tiết, ngày đến hạn, độ ưu tiên, trạng thái, metadata thời gian và nút xóa mềm task.
 
 ---
 
@@ -32,112 +30,82 @@
 
 ```text
 my-todo-rust/
-├── Cargo.toml
-├── migrations/
-│   └── 0001_create_tasks.sql    # Schema bảng tasks hỗ trợ Soft-delete & Sync
-├── tests/
-│   └── repository_test.rs       # Bộ test tự động CRUD, Soft Delete & Sync Status
-└── src/
-    ├── lib.rs                   # Expose các module cho testing & integration
-    ├── main.rs                  # Khởi tạo Tokio đa luồng, chạy migration và eframe window loop
-    ├── domain/
-    │   ├── mod.rs
-    │   └── task.rs              # Struct Task, TaskStatus, Priority (UUID v7, Unix ms)
-    ├── storage/
-    │   ├── mod.rs               # Async trait TaskRepository
-    │   └── sqlite.rs            # SqliteTaskRepo (quản lý pool, auto-migration, XDG path)
-    └── ui/
-        ├── mod.rs
-        └── app.rs               # UI State Management, Kanban Board DnD & List View
+├── package.json                 # Scripts và frontend dependencies
+├── vite.config.ts               # Cấu hình Vite cho Tauri v2
+├── tsconfig.json                # TypeScript compiler options
+├── tailwind.config.js           # Cấu hình Tailwind CSS & Dark mode
+├── index.html                   # HTML entrypoint nạp font Inter & viewport
+├── src/                         # FRONTEND (Vue 3 + TS + Tailwind)
+│   ├── main.ts                  # Khởi tạo Vue app và Pinia store
+│   ├── App.vue                  # Bố cục 3-Pane Layout
+│   ├── style.css                # Tailwind directives & custom scrollbars
+│   ├── types/
+│   │   └── task.ts              # Interface Task, TaskStatus, Priority, FilterType
+│   ├── stores/
+│   │   └── taskStore.ts         # Pinia store giao tiếp backend qua invoke()
+│   └── components/
+│       ├── Sidebar.vue          # Cột 1: Smart Sidebar & Sync status
+│       ├── QuickAddBar.vue      # Thanh nhập việc nhanh đặc trưng TickTick
+│       ├── TaskListView.vue     # Cột 2: Giao diện danh sách phân nhóm
+│       ├── TaskKanbanView.vue   # Cột 2: Bảng Kanban kéo thả Drag & Drop
+│       └── TaskDetailPanel.vue  # Cột 3: Drawer chi tiết công việc & Auto-save
+└── src-tauri/                   # BACKEND (Tauri v2 + Rust)
+    ├── Cargo.toml               # Tauri v2, sqlx, tokio, uuid, serde
+    ├── tauri.conf.json          # Cấu hình cửa sổ và quyền ứng dụng
+    ├── build.rs                 # Script build Tauri
+    ├── capabilities/
+    │   └── default.json         # Phân quyền core permissions
+    ├── migrations/
+    │   └── 0001_create_tasks.sql # Schema bảng tasks SQLite
+    └── src/
+        ├── main.rs              # Entrypoint binary
+        ├── lib.rs               # Setup tauri builder & state manage
+        ├── commands.rs          # Các hàm #[tauri::command] gọi TaskRepository
+        ├── domain/
+        │   ├── mod.rs
+        │   └── task.rs          # Entity Task, TaskStatus, Priority
+        └── storage/
+            ├── mod.rs           # TaskRepository trait
+            └── sqlite.rs        # SqliteTaskRepo (WAL mode, auto-migration)
 ```
 
 ---
 
-## 📊 Thiết kế Schema Database (`tasks`)
+## 📦 Yêu cầu hệ thống & Cài đặt
 
-```sql
-CREATE TABLE IF NOT EXISTS tasks (
-    id TEXT PRIMARY KEY NOT NULL,              -- Chuỗi UUID v7 tự sắp xếp theo thời gian
-    title TEXT NOT NULL,                       -- Tiêu đề công việc
-    description TEXT,                          -- Mô tả chi tiết (nullable)
-    status TEXT NOT NULL DEFAULT 'todo',       -- 'todo', 'in_progress', 'done'
-    priority INTEGER NOT NULL DEFAULT 2,       -- 1: Low, 2: Medium, 3: High
-    due_date INTEGER,                          -- Unix timestamp hạn chót (nullable)
-    created_at INTEGER NOT NULL,               -- Unix timestamp ms
-    updated_at INTEGER NOT NULL,               -- Unix timestamp ms (LWW sync)
-    deleted_at INTEGER,                        -- Unix timestamp ms (Soft Delete)
-    sync_status TEXT NOT NULL DEFAULT 'pending'-- 'pending' hoặc 'synced'
-);
-
-CREATE INDEX IF NOT EXISTS idx_tasks_deleted_at ON tasks(deleted_at);
-CREATE INDEX IF NOT EXISTS idx_tasks_updated_at ON tasks(updated_at);
-CREATE INDEX IF NOT EXISTS idx_tasks_sync_status ON tasks(sync_status);
-```
-
----
-
-## 📦 Yêu cầu môi trường & Cài đặt thư viện hệ thống
-
-Ứng dụng yêu cầu **Rust toolchain** (1.75 trở lên) và các gói thư viện phát triển đồ họa trên Ubuntu:
+### 1. Cài đặt các gói thư viện hệ thống cần thiết (Ubuntu 24.04 / Debian)
+Tauri v2 trên Linux yêu cầu WebKitGTK và một số thư viện phát triển giao diện:
 
 ```bash
-# Cài đặt Rust nếu chưa có
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-source "$HOME/.cargo/env"
-
-# Cài đặt các gói thư viện hệ thống trên Ubuntu/Debian
 sudo apt update
 sudo apt install -y \
-    build-essential \
-    pkg-config \
-    libssl-dev \
-    libxcb1-dev \
-    libxcb-render0-dev \
-    libxcb-shape0-dev \
-    libxcb-xfixes0-dev \
-    libxkbcommon-dev \
-    libxkbcommon-x11-dev \
-    libfontconfig1-dev
+  libwebkit2gtk-4.1-dev \
+  libayatana-appindicator3-dev \
+  librsvg2-dev \
+  libxdo-dev \
+  build-essential \
+  curl \
+  wget \
+  file \
+  libssl-dev
 ```
 
----
-
-## 🚀 Hướng dẫn khởi chạy
-
-### 1. Chạy ở chế độ phát triển (Development)
+### 2. Cài đặt Node dependencies (pnpm)
 ```bash
-cargo run
+pnpm install
 ```
 
-### 2. Biên dịch bản chính thức (Release)
-Bản release được tối ưu hóa hiệu năng và dung lượng:
+### 3. Chạy ứng dụng ở môi trường phát triển (Dev)
 ```bash
-cargo build --release
-./target/release/rust-task-mgr
+# Chạy ứng dụng Tauri v2 Desktop (kèm Hot Reload frontend & backend)
+pnpm tauri dev
+
+# Hoặc chạy thử nhanh giao diện trên trình duyệt (có sẵn Mock Data Fallback)
+pnpm dev
 ```
 
-### 3. Chạy bộ kiểm thử tự động (Tests)
+### 4. Đóng gói & Kiểm tra (Production Build)
 ```bash
-cargo test
+pnpm build
+pnpm tauri build
 ```
-
----
-
-## ⚙️ Cấu hình nâng cao
-
-| Biến môi trường | Mặc định | Mô tả |
-| :--- | :--- | :--- |
-| `TASK_MGR_DB_PATH` | `~/.local/share/rust-task-mgr/tasks.db` | Ghi đè đường dẫn file SQLite (hữu ích khi test hoặc backup dữ liệu). |
-
----
-
-## 🗺️ Lộ trình phát triển (Roadmap)
-
-- [x] Khởi tạo kiến trúc phân tầng: Domain, Storage (Repository Pattern), UI.
-- [x] Lưu trữ cục bộ SQLite với auto-migration và chuẩn XDG.
-- [x] Chế độ xem Danh sách (List View) và Bảng Kanban (Kanban Board 3 cột).
-- [x] Kéo & thả (Drag & Drop) và phím chuyển cột nhanh 1-click.
-- [x] Hỗ trợ hiển thị tiếng Việt có dấu qua font Ubuntu.
-- [ ] Tích hợp Supabase Client: Tự động phát hiện mạng và đồng bộ dữ liệu hai chiều khi online.
-- [ ] Thông báo Desktop (Desktop Notification) khi đến hạn `due_date`.
-- [ ] Gán nhãn/Tag và phân loại theo dự án.
