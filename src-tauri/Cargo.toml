@@ -9,6 +9,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+dotenvy = "0.15"
 
 [dependencies]
 tauri = { version = "2", features = [] }
@@ -22,6 +23,8 @@ chrono = { version = "0.4", features = ["serde"] }
 directories = "6.0.0"
 anyhow = "1.0"
 async-trait = "0.1"
+dotenvy = "0.15"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"

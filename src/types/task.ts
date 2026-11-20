@@ -4,6 +4,7 @@ export type Priority = 1 | 2 | 3;
 
 export interface Task {
   id: string;
+  user_id?: string | null;
   title: string;
   description: string | null;
   status: TaskStatus;
@@ -15,6 +16,20 @@ export interface Task {
   updated_at: number;
   deleted_at: number | null;
   sync_status: string;
+}
+
+export interface UserInfo {
+  user_id: string;
+  email: string;
+}
+
+export interface SyncStatusState {
+  is_logged_in: boolean;
+  user_email: string | null;
+  state: 'idle' | 'syncing' | 'synced' | 'offline' | 'error';
+  pending_count: number;
+  last_synced_at: number | null;
+  error_message: string | null;
 }
 
 export type FilterType = 'all' | 'today' | 'high_priority' | 'completed';

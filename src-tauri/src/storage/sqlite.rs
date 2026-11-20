@@ -9,6 +9,7 @@ use sqlx::{
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+use crate::domain::auth::{AuthSession, UserInfo};
 use crate::domain::task::{CreateTaskInput, Priority, Task, TaskStatus, UpdateTaskInput};
 use crate::storage::TaskRepository;
 
@@ -84,12 +85,22 @@ impl SqliteTaskRepo {
         &self.pool
     }
 
+    /// Lấy user_id của phiên đăng nhập hiện tại nếu có
+    pub async fn current_user_id(&self) -> Result<Option<String>> {
+        let maybe_row = sqlx::query("SELECT user_id FROM auth_session WHERE id = 1")
+            .fetch_optional(&self.pool)
+            .await
+            .context("Lỗi truy vấn user_id từ auth_session")?;
+        Ok(maybe_row.map(|r| r.get("user_id")))
+    }
+
     fn map_row(row: SqliteRow) -> Task {
         let status_str: String = row.get("status");
         let priority_int: i64 = row.get("priority");
 
         Task {
             id: row.get("id"),
+            user_id: row.get("user_id"),
             title: row.get("title"),
             description: row.get("description"),
             status: TaskStatus::from_str_loose(&status_str),
@@ -108,18 +119,35 @@ impl SqliteTaskRepo {
 #[async_trait]
 impl TaskRepository for SqliteTaskRepo {
     async fn list_active_tasks(&self) -> Result<Vec<Task>> {
-        let rows = sqlx::query(
-            "SELECT id, title, description, status, priority, due_date, start_time, end_time, created_at, updated_at, deleted_at, sync_status
-             FROM tasks
-             WHERE deleted_at IS NULL
-             ORDER BY
-                 CASE WHEN status = 'done' THEN 1 ELSE 0 END ASC,
-                 priority DESC,
-                 created_at DESC",
-        )
-        .fetch_all(&self.pool)
-        .await
-        .context("Lỗi truy vấn danh sách task đang hoạt động")?;
+        let uid = self.current_user_id().await?;
+        let rows = if let Some(ref user_id) = uid {
+            sqlx::query(
+                "SELECT id, user_id, title, description, status, priority, due_date, start_time, end_time, created_at, updated_at, deleted_at, sync_status
+                 FROM tasks
+                 WHERE deleted_at IS NULL AND user_id = $1
+                 ORDER BY
+                     CASE WHEN status = 'done' THEN 1 ELSE 0 END ASC,
+                     priority DESC,
+                     created_at DESC",
+            )
+            .bind(user_id)
+            .fetch_all(&self.pool)
+            .await
+            .context("Lỗi truy vấn danh sách task của user đang hoạt động")?
+        } else {
+            sqlx::query(
+                "SELECT id, user_id, title, description, status, priority, due_date, start_time, end_time, created_at, updated_at, deleted_at, sync_status
+                 FROM tasks
+                 WHERE deleted_at IS NULL AND user_id IS NULL
+                 ORDER BY
+                     CASE WHEN status = 'done' THEN 1 ELSE 0 END ASC,
+                     priority DESC,
+                     created_at DESC",
+            )
+            .fetch_all(&self.pool)
+            .await
+            .context("Lỗi truy vấn danh sách task Guest đang hoạt động")?
+        };
 
         let tasks = rows.into_iter().map(Self::map_row).collect();
         Ok(tasks)
@@ -127,7 +155,7 @@ impl TaskRepository for SqliteTaskRepo {
 
     async fn get_task_by_id(&self, id: &str) -> Result<Option<Task>> {
         let maybe_row = sqlx::query(
-            "SELECT id, title, description, status, priority, due_date, start_time, end_time, created_at, updated_at, deleted_at, sync_status
+            "SELECT id, user_id, title, description, status, priority, due_date, start_time, end_time, created_at, updated_at, deleted_at, sync_status
              FROM tasks
              WHERE id = $1 AND deleted_at IS NULL",
         )
@@ -140,6 +168,7 @@ impl TaskRepository for SqliteTaskRepo {
     }
 
     async fn create_task(&self, input: CreateTaskInput) -> Result<Task> {
+        let uid = self.current_user_id().await?;
         let now = Utc::now().timestamp_millis();
         let id = Uuid::now_v7().to_string();
         let status = TaskStatus::Todo;
@@ -147,12 +176,13 @@ impl TaskRepository for SqliteTaskRepo {
 
         sqlx::query(
             "INSERT INTO tasks (
-                 id, title, description, status, priority,
+                 id, user_id, title, description, status, priority,
                  due_date, start_time, end_time, created_at, updated_at, deleted_at, sync_status
              )
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
         )
         .bind(&id)
+        .bind(&uid)
         .bind(&input.title)
         .bind(&input.description)
         .bind(status.as_str())
@@ -170,6 +200,7 @@ impl TaskRepository for SqliteTaskRepo {
 
         Ok(Task {
             id,
+            user_id: uid,
             title: input.title,
             description: input.description,
             status,
@@ -328,38 +359,69 @@ impl TaskRepository for SqliteTaskRepo {
 
     async fn search_tasks(&self, query: &str) -> Result<Vec<Task>> {
         let trimmed = query.trim();
+        let uid = self.current_user_id().await?;
+
         if trimmed.is_empty() {
-            // Lấy 8 task mới cập nhật gần nhất khi chưa gõ từ khóa
-            let rows = sqlx::query(
-                "SELECT id, title, description, status, priority, due_date, start_time, end_time, created_at, updated_at, deleted_at, sync_status
-                 FROM tasks
-                 WHERE deleted_at IS NULL
-                 ORDER BY
-                     CASE WHEN status = 'done' THEN 1 ELSE 0 END ASC,
-                     updated_at DESC
-                 LIMIT 8",
-            )
-            .fetch_all(&self.pool)
-            .await
-            .context("Lỗi truy vấn task gần đây")?;
+            let rows = if let Some(ref user_id) = uid {
+                sqlx::query(
+                    "SELECT id, user_id, title, description, status, priority, due_date, start_time, end_time, created_at, updated_at, deleted_at, sync_status
+                     FROM tasks
+                     WHERE deleted_at IS NULL AND user_id = $1
+                     ORDER BY
+                         CASE WHEN status = 'done' THEN 1 ELSE 0 END ASC,
+                         updated_at DESC
+                     LIMIT 8",
+                )
+                .bind(user_id)
+                .fetch_all(&self.pool)
+                .await
+                .context("Lỗi truy vấn task gần đây của user")?
+            } else {
+                sqlx::query(
+                    "SELECT id, user_id, title, description, status, priority, due_date, start_time, end_time, created_at, updated_at, deleted_at, sync_status
+                     FROM tasks
+                     WHERE deleted_at IS NULL AND user_id IS NULL
+                     ORDER BY
+                         CASE WHEN status = 'done' THEN 1 ELSE 0 END ASC,
+                         updated_at DESC
+                     LIMIT 8",
+                )
+                .fetch_all(&self.pool)
+                .await
+                .context("Lỗi truy vấn task gần đây Guest")?
+            };
 
             return Ok(rows.into_iter().map(Self::map_row).collect());
         }
 
         let normalized_query = remove_vietnamese_diacritics(trimmed);
 
-        // Lấy danh sách active tasks để tìm kiếm kèm chuẩn hóa tiếng Việt không dấu
-        let rows = sqlx::query(
-            "SELECT id, title, description, status, priority, due_date, start_time, end_time, created_at, updated_at, deleted_at, sync_status
-             FROM tasks
-             WHERE deleted_at IS NULL
-             ORDER BY
-                 CASE WHEN status = 'done' THEN 1 ELSE 0 END ASC,
-                 updated_at DESC",
-        )
-        .fetch_all(&self.pool)
-        .await
-        .context("Lỗi truy vấn danh sách task phục vụ tìm kiếm")?;
+        let rows = if let Some(ref user_id) = uid {
+            sqlx::query(
+                "SELECT id, user_id, title, description, status, priority, due_date, start_time, end_time, created_at, updated_at, deleted_at, sync_status
+                 FROM tasks
+                 WHERE deleted_at IS NULL AND user_id = $1
+                 ORDER BY
+                     CASE WHEN status = 'done' THEN 1 ELSE 0 END ASC,
+                     updated_at DESC",
+            )
+            .bind(user_id)
+            .fetch_all(&self.pool)
+            .await
+            .context("Lỗi truy vấn danh sách task phục vụ tìm kiếm")?
+        } else {
+            sqlx::query(
+                "SELECT id, user_id, title, description, status, priority, due_date, start_time, end_time, created_at, updated_at, deleted_at, sync_status
+                 FROM tasks
+                 WHERE deleted_at IS NULL AND user_id IS NULL
+                 ORDER BY
+                     CASE WHEN status = 'done' THEN 1 ELSE 0 END ASC,
+                     updated_at DESC",
+            )
+            .fetch_all(&self.pool)
+            .await
+            .context("Lỗi truy vấn danh sách task Guest phục vụ tìm kiếm")?
+        };
 
         let mut matched: Vec<Task> = rows
             .into_iter()
@@ -390,6 +452,247 @@ impl TaskRepository for SqliteTaskRepo {
         });
 
         Ok(matched)
+    }
+
+    // --- Auth Session Methods ---
+
+    async fn get_current_session(&self) -> Result<Option<AuthSession>> {
+        let maybe_row = sqlx::query(
+            "SELECT user_id, email, access_token, refresh_token, expires_at
+             FROM auth_session
+             WHERE id = 1",
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .context("Lỗi truy vấn auth_session")?;
+
+        Ok(maybe_row.map(|row| AuthSession {
+            user_id: row.get("user_id"),
+            email: row.get("email"),
+            access_token: row.get("access_token"),
+            refresh_token: row.get("refresh_token"),
+            expires_at: row.get("expires_at"),
+        }))
+    }
+
+    async fn save_session(&self, session: &AuthSession) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO auth_session (id, user_id, email, access_token, refresh_token, expires_at)
+             VALUES (1, $1, $2, $3, $4, $5)
+             ON CONFLICT(id) DO UPDATE SET
+                 user_id = $1,
+                 email = $2,
+                 access_token = $3,
+                 refresh_token = $4,
+                 expires_at = $5",
+        )
+        .bind(&session.user_id)
+        .bind(&session.email)
+        .bind(&session.access_token)
+        .bind(&session.refresh_token)
+        .bind(session.expires_at)
+        .execute(&self.pool)
+        .await
+        .context("Lỗi lưu auth_session")?;
+
+        // Tự động gán các task Guest (user_id IS NULL) sang user_id mới đăng nhập
+        self.migrate_guest_tasks_to_user(&session.user_id).await?;
+
+        Ok(())
+    }
+
+    async fn clear_session(&self) -> Result<()> {
+        sqlx::query("DELETE FROM auth_session WHERE id = 1")
+            .execute(&self.pool)
+            .await
+            .context("Lỗi xóa auth_session khi đăng xuất")?;
+        Ok(())
+    }
+
+    async fn get_current_user(&self) -> Result<Option<UserInfo>> {
+        let maybe_session = self.get_current_session().await?;
+        Ok(maybe_session.map(|s| UserInfo {
+            user_id: s.user_id,
+            email: s.email,
+        }))
+    }
+
+    // --- Sync Support Methods ---
+
+    async fn get_sync_meta(&self, key: &str) -> Result<Option<String>> {
+        let maybe_row = sqlx::query("SELECT value FROM sync_meta WHERE key = $1")
+            .bind(key)
+            .fetch_optional(&self.pool)
+            .await
+            .context("Lỗi truy vấn sync_meta")?;
+        Ok(maybe_row.map(|r| r.get("value")))
+    }
+
+    async fn set_sync_meta(&self, key: &str, value: &str) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO sync_meta (key, value)
+             VALUES ($1, $2)
+             ON CONFLICT(key) DO UPDATE SET value = $2",
+        )
+        .bind(key)
+        .bind(value)
+        .execute(&self.pool)
+        .await
+        .context("Lỗi lưu sync_meta")?;
+        Ok(())
+    }
+
+    async fn get_pending_sync_tasks(&self, user_id: &str) -> Result<Vec<Task>> {
+        let rows = sqlx::query(
+            "SELECT id, user_id, title, description, status, priority, due_date, start_time, end_time, created_at, updated_at, deleted_at, sync_status
+             FROM tasks
+             WHERE user_id = $1 AND sync_status = 'pending'
+             ORDER BY updated_at ASC",
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await
+        .context("Lỗi lấy danh sách task pending để sync")?;
+
+        Ok(rows.into_iter().map(Self::map_row).collect())
+    }
+
+    async fn mark_tasks_synced(&self, ids: &[String]) -> Result<()> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        for chunk in ids.chunks(50) {
+            let mut builder: sqlx::QueryBuilder<sqlx::Sqlite> =
+                sqlx::QueryBuilder::new("UPDATE tasks SET sync_status = 'synced' WHERE id IN (");
+            let mut separated = builder.separated(", ");
+            for id in chunk {
+                separated.push_bind(id);
+            }
+            separated.push_unseparated(")");
+            builder
+                .build()
+                .execute(&self.pool)
+                .await
+                .context("Lỗi cập nhật sync_status = 'synced'")?;
+        }
+        Ok(())
+    }
+
+    async fn upsert_pulled_task(&self, remote: &Task) -> Result<bool> {
+        let existing = sqlx::query(
+            "SELECT id, updated_at, sync_status FROM tasks WHERE id = $1"
+        )
+        .bind(&remote.id)
+        .fetch_optional(&self.pool)
+        .await
+        .context("Lỗi kiểm tra task tồn tại khi pull")?;
+
+        match existing {
+            None => {
+                // Task chưa có ở local -> Chèn mới
+                sqlx::query(
+                    "INSERT INTO tasks (
+                         id, user_id, title, description, status, priority,
+                         due_date, start_time, end_time, created_at, updated_at, deleted_at, sync_status
+                     )
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'synced')",
+                )
+                .bind(&remote.id)
+                .bind(&remote.user_id)
+                .bind(&remote.title)
+                .bind(&remote.description)
+                .bind(remote.status.as_str())
+                .bind(remote.priority.as_i64())
+                .bind(remote.due_date)
+                .bind(remote.start_time)
+                .bind(remote.end_time)
+                .bind(remote.created_at)
+                .bind(remote.updated_at)
+                .bind(remote.deleted_at)
+                .execute(&self.pool)
+                .await
+                .context("Lỗi chèn task pulled từ cloud")?;
+
+                Ok(true)
+            }
+            Some(row) => {
+                let local_updated: i64 = row.get("updated_at");
+                let local_sync: String = row.get("sync_status");
+
+                // Last-Write-Wins: Chỉ ghi đè nếu local đã synced và remote mới hơn
+                if local_sync == "synced" && remote.updated_at > local_updated {
+                    sqlx::query(
+                        "UPDATE tasks
+                         SET user_id = $1,
+                             title = $2,
+                             description = $3,
+                             status = $4,
+                             priority = $5,
+                             due_date = $6,
+                             start_time = $7,
+                             end_time = $8,
+                             updated_at = $9,
+                             deleted_at = $10,
+                             sync_status = 'synced'
+                         WHERE id = $11",
+                    )
+                    .bind(&remote.user_id)
+                    .bind(&remote.title)
+                    .bind(&remote.description)
+                    .bind(remote.status.as_str())
+                    .bind(remote.priority.as_i64())
+                    .bind(remote.due_date)
+                    .bind(remote.start_time)
+                    .bind(remote.end_time)
+                    .bind(remote.updated_at)
+                    .bind(remote.deleted_at)
+                    .bind(&remote.id)
+                    .execute(&self.pool)
+                    .await
+                    .context("Lỗi cập nhật task pulled từ cloud (LWW)")?;
+
+                    Ok(true)
+                } else {
+                    // Local đang có thay đổi chưa sync hoặc mới hơn -> giữ nguyên
+                    Ok(false)
+                }
+            }
+        }
+    }
+
+    async fn migrate_guest_tasks_to_user(&self, user_id: &str) -> Result<u64> {
+        let now = Utc::now().timestamp_millis();
+        let result = sqlx::query(
+            "UPDATE tasks
+             SET user_id = $1,
+                 sync_status = 'pending',
+                 updated_at = $2
+             WHERE user_id IS NULL",
+        )
+        .bind(user_id)
+        .bind(now)
+        .execute(&self.pool)
+        .await
+        .context("Lỗi chuyển đổi guest tasks sang user account")?;
+
+        Ok(result.rows_affected())
+    }
+
+    async fn count_pending_tasks(&self) -> Result<i64> {
+        let uid = self.current_user_id().await?;
+        let count_row = if let Some(ref user_id) = uid {
+            sqlx::query("SELECT COUNT(*) as count FROM tasks WHERE user_id = $1 AND sync_status = 'pending'")
+                .bind(user_id)
+                .fetch_one(&self.pool)
+                .await?
+        } else {
+            sqlx::query("SELECT COUNT(*) as count FROM tasks WHERE user_id IS NULL AND sync_status = 'pending'")
+                .fetch_one(&self.pool)
+                .await?
+        };
+
+        let count: i64 = count_row.get("count");
+        Ok(count)
     }
 }
 

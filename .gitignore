@@ -12,3 +12,6 @@ Cargo.lock
 # Logs & temp
 *.log
 .DS_Store
+.env
+.env.*
+!.env.example

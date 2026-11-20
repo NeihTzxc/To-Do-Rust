@@ -102,6 +102,7 @@ impl fmt::Display for Priority {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
     pub id: String,
+    pub user_id: Option<String>,
     pub title: String,
     pub description: Option<String>,
     pub status: TaskStatus,
@@ -127,6 +128,7 @@ impl Task {
         let id = Uuid::now_v7().to_string();
         Self {
             id,
+            user_id: None,
             title,
             description,
             status: TaskStatus::Todo,

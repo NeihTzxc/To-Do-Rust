@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import type {
   Task,
   TaskStatus,
@@ -10,6 +11,8 @@ import type {
   NavigationTab,
   CreateTaskPayload,
   UpdateTaskPayload,
+  UserInfo,
+  SyncStatusState,
 } from '@/types/task';
 
 function isTodayOrOverdue(timestamp: number | null): boolean {
@@ -114,6 +117,19 @@ export const useTaskStore = defineStore('tasks', {
     isDarkMode: false,
     isSidebarCollapsed: false,
     isSearchModalOpen: false,
+    currentUser: null as UserInfo | null,
+    syncState: {
+      is_logged_in: false,
+      user_email: null,
+      state: 'idle',
+      pending_count: 0,
+      last_synced_at: null,
+      error_message: null,
+    } as SyncStatusState,
+    isAuthModalOpen: false,
+    authLoading: false,
+    authError: null as string | null,
+    syncTriggerLoading: false,
     isTauriEnv: typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window,
   }),
 
@@ -148,7 +164,11 @@ export const useTaskStore = defineStore('tasks', {
     },
 
     pendingSyncCount: (state): number => {
-      return state.tasks.filter((t) => t.sync_status === 'pending').length;
+      return state.syncState.pending_count || state.tasks.filter((t) => t.sync_status === 'pending').length;
+    },
+
+    isLoggedIn: (state): boolean => {
+      return !!state.currentUser;
     },
 
     counts(): Record<FilterType, number> {
@@ -226,7 +246,38 @@ export const useTaskStore = defineStore('tasks', {
       }
       this.applyTheme();
 
+      await this.initAuthAndSync();
       await this.fetchTasks();
+    },
+
+    async initAuthAndSync() {
+      if (this.isTauriEnv) {
+        try {
+          const user = await invoke<UserInfo | null>('get_current_user');
+          this.currentUser = user;
+          const status = await invoke<SyncStatusState>('get_sync_status');
+          this.syncState = status;
+
+          await listen('tasks-synced', async () => {
+            console.log('[Sync] Event tasks-synced received from Rust backend, refreshing local tasks...');
+            await this.fetchTasks();
+            await this.fetchSyncStatus();
+          });
+        } catch (e) {
+          console.warn('Init auth/sync warning:', e);
+        }
+      }
+    },
+
+    async fetchSyncStatus() {
+      if (this.isTauriEnv) {
+        try {
+          const status = await invoke<SyncStatusState>('get_sync_status');
+          this.syncState = status;
+        } catch (e) {
+          console.warn('fetchSyncStatus error:', e);
+        }
+      }
     },
 
     applyTheme() {
@@ -554,6 +605,112 @@ export const useTaskStore = defineStore('tasks', {
       } catch (err: any) {
         console.error('Lỗi tìm kiếm task:', err);
         return [];
+      }
+    },
+
+    openAuthModal() {
+      this.isAuthModalOpen = true;
+      this.authError = null;
+    },
+
+    closeAuthModal() {
+      this.isAuthModalOpen = false;
+      this.authError = null;
+    },
+
+    toggleAuthModal() {
+      this.isAuthModalOpen = !this.isAuthModalOpen;
+      this.authError = null;
+    },
+
+    async login(email: string, password: string): Promise<boolean> {
+      this.authLoading = true;
+      this.authError = null;
+      try {
+        if (this.isTauriEnv) {
+          const user = await invoke<UserInfo>('login', { email, password });
+          this.currentUser = user;
+          await this.fetchTasks();
+          await this.fetchSyncStatus();
+        } else {
+          this.currentUser = { user_id: 'mock-user-1', email };
+          this.syncState.is_logged_in = true;
+          this.syncState.user_email = email;
+          this.syncState.state = 'synced';
+        }
+        this.closeAuthModal();
+        return true;
+      } catch (err: any) {
+        console.error('Lỗi đăng nhập:', err);
+        this.authError = String(err);
+        return false;
+      } finally {
+        this.authLoading = false;
+      }
+    },
+
+    async register(email: string, password: string): Promise<boolean> {
+      this.authLoading = true;
+      this.authError = null;
+      try {
+        if (this.isTauriEnv) {
+          const user = await invoke<UserInfo>('register', { email, password });
+          this.currentUser = user;
+          await this.fetchTasks();
+          await this.fetchSyncStatus();
+        } else {
+          this.currentUser = { user_id: 'mock-user-1', email };
+          this.syncState.is_logged_in = true;
+          this.syncState.user_email = email;
+          this.syncState.state = 'synced';
+        }
+        this.closeAuthModal();
+        return true;
+      } catch (err: any) {
+        console.error('Lỗi đăng ký:', err);
+        this.authError = String(err);
+        return false;
+      } finally {
+        this.authLoading = false;
+      }
+    },
+
+    async logout(): Promise<void> {
+      this.authLoading = true;
+      this.authError = null;
+      try {
+        if (this.isTauriEnv) {
+          await invoke('logout');
+        }
+        this.currentUser = null;
+        this.syncState.is_logged_in = false;
+        this.syncState.user_email = null;
+        this.syncState.state = 'idle';
+        await this.fetchTasks();
+        await this.fetchSyncStatus();
+      } catch (err: any) {
+        console.error('Lỗi đăng xuất:', err);
+        this.authError = String(err);
+      } finally {
+        this.authLoading = false;
+      }
+    },
+
+    async triggerSyncNow(): Promise<void> {
+      if (this.syncTriggerLoading) return;
+      this.syncTriggerLoading = true;
+      try {
+        if (this.isTauriEnv) {
+          await invoke('trigger_sync_now');
+          await this.fetchSyncStatus();
+        }
+      } catch (err: any) {
+        console.error('Lỗi kích hoạt sync:', err);
+      } finally {
+        setTimeout(async () => {
+          this.syncTriggerLoading = false;
+          await this.fetchSyncStatus();
+        }, 1200);
       }
     },
   },

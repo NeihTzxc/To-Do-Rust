@@ -9,6 +9,7 @@ import TaskKanbanView from '@/components/TaskKanbanView.vue';
 import CalendarView from '@/components/CalendarView.vue';
 import TaskDetailPanel from '@/components/TaskDetailPanel.vue';
 import SearchModal from '@/components/SearchModal.vue';
+import AuthModal from '@/components/AuthModal.vue';
 import {
   List,
   Kanban,
@@ -174,5 +175,8 @@ const currentFilterTitle = computed(() => {
 
     <!-- Spotlight Command Palette Search Modal -->
     <SearchModal />
+
+    <!-- Supabase Auth & Cloud Sync Modal -->
+    <AuthModal />
   </div>
 </template>
