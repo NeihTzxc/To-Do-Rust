@@ -109,3 +109,24 @@ pnpm dev
 pnpm build
 pnpm tauri build
 ```
+
+---
+
+## 🛠️ Lệnh tắt qua Makefile (Quick Commands)
+
+Dự án đã tích hợp sẵn `Makefile` chuẩn hóa toàn bộ quy trình phát triển và kiểm tra:
+
+```bash
+make help             # Hiển thị danh sách tất cả các lệnh có sẵn
+make install          # Cài đặt frontend dependencies (pnpm install)
+make dev              # Chạy Tauri v2 Desktop dev mode (kèm hot-reload)
+make dev-web          # Chạy frontend web dev server (trên browser, kèm mock fallback)
+make build            # Đóng gói hoàn chỉnh ứng dụng Desktop Tauri
+make build-web        # Build frontend assets (vue-tsc + vite)
+make check            # Chạy toàn bộ kiểm tra (typecheck, fmt-check, lint, test)
+make typecheck        # Kiểm tra kiểu TypeScript (vue-tsc --noEmit)
+make fmt              # Format code Rust theo chuẩn rustfmt
+make clean            # Dọn dẹp thư mục build (dist, target)
+make db-path          # Xem đường dẫn file SQLite database cục bộ
+make db-clean         # Xóa database cục bộ để reset dữ liệu
+```

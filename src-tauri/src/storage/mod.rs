@@ -18,6 +18,9 @@ pub trait TaskRepository: Send + Sync {
     /// Cập nhật thông tin task
     async fn update_task(&self, input: UpdateTaskInput) -> Result<Task>;
 
+    /// Cập nhật thời gian xếp lịch (start_time, end_time) cho Calendar time-blocking
+    async fn update_schedule(&self, id: &str, start_time: Option<i64>, end_time: Option<i64>) -> Result<Task>;
+
     /// Đổi trạng thái task (todo/in_progress -> done hoặc done -> todo)
     async fn toggle_status(&self, id: &str) -> Result<Task>;
 
@@ -26,6 +29,9 @@ pub trait TaskRepository: Send + Sync {
 
     /// Xóa mềm task (gán deleted_at = now, sync_status = 'pending')
     async fn soft_delete_task(&self, id: &str) -> Result<()>;
+
+    /// Tìm kiếm task theo từ khóa (hỗ trợ tiếng Việt không dấu, tìm trong title & description)
+    async fn search_tasks(&self, query: &str) -> Result<Vec<Task>>;
 }
 
 pub use sqlite::SqliteTaskRepo;

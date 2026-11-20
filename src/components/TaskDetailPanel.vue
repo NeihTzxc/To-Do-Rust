@@ -22,6 +22,8 @@ const description = ref('');
 const status = ref<TaskStatus>('todo');
 const priority = ref<Priority>(2);
 const dueDate = ref<number | null>(null);
+const startTime = ref<number | null>(null);
+const endTime = ref<number | null>(null);
 
 // Watch for selected task changes to update local reactive form state
 watch(
@@ -33,6 +35,8 @@ watch(
       status.value = task.status;
       priority.value = task.priority;
       dueDate.value = task.due_date;
+      startTime.value = task.start_time;
+      endTime.value = task.end_time;
     }
   },
   { immediate: true }
@@ -57,6 +61,8 @@ function triggerAutoSave() {
       status: status.value,
       priority: priority.value,
       due_date: dueDate.value,
+      start_time: startTime.value,
+      end_time: endTime.value,
     });
   }, 400);
 }
@@ -74,6 +80,8 @@ function handleBlurSave() {
     status: status.value,
     priority: priority.value,
     due_date: dueDate.value,
+    start_time: startTime.value,
+    end_time: endTime.value,
   });
 }
 
@@ -112,6 +120,62 @@ const formattedInputDate = computed(() => {
   const day = String(d.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 });
+
+const formattedStartTime = computed(() => {
+  if (!startTime.value) return '';
+  const d = new Date(startTime.value);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+});
+
+const formattedEndTime = computed(() => {
+  if (!endTime.value) return '';
+  const d = new Date(endTime.value);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+});
+
+function onStartTimeChange(e: Event) {
+  const val = (e.target as HTMLInputElement).value;
+  if (!val) {
+    startTime.value = null;
+    triggerAutoSave();
+    return;
+  }
+  const [h, m] = val.split(':').map(Number);
+  const base = startTime.value ? new Date(startTime.value) : (dueDate.value ? new Date(dueDate.value) : new Date());
+  base.setHours(h, m, 0, 0);
+  startTime.value = base.getTime();
+
+  if (!dueDate.value) {
+    const d = new Date(base);
+    d.setHours(23, 59, 59, 999);
+    dueDate.value = d.getTime();
+  }
+
+  if (!endTime.value || endTime.value <= startTime.value) {
+    endTime.value = startTime.value + 60 * 60 * 1000;
+  }
+  triggerAutoSave();
+}
+
+function onEndTimeChange(e: Event) {
+  const val = (e.target as HTMLInputElement).value;
+  if (!val) {
+    endTime.value = null;
+    triggerAutoSave();
+    return;
+  }
+  const [h, m] = val.split(':').map(Number);
+  const base = endTime.value ? new Date(endTime.value) : (startTime.value ? new Date(startTime.value) : new Date());
+  base.setHours(h, m, 0, 0);
+  endTime.value = base.getTime();
+  triggerAutoSave();
+}
+
+function clearSchedule() {
+  startTime.value = null;
+  endTime.value = null;
+  triggerAutoSave();
+}
 
 function formatDateTime(timestamp: number): string {
   const d = new Date(timestamp);
@@ -254,6 +318,42 @@ function formatDateTime(timestamp: number): string {
             >
               <X class="w-3 h-3" />
             </button>
+          </div>
+        </div>
+
+        <!-- Time-blocking Property (Giờ bắt đầu - Giờ kết thúc) -->
+        <div class="space-y-1.5 pt-1 border-t border-slate-100 dark:border-slate-800 text-xs">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+              <Clock class="w-3.5 h-3.5" />
+              <span>Khung giờ Lịch</span>
+            </div>
+            <button
+              v-if="startTime || endTime"
+              type="button"
+              @click="clearSchedule"
+              class="text-[11px] text-slate-400 hover:text-red-500 transition-colors"
+              title="Xóa giờ trên lịch"
+            >
+              Xóa giờ
+            </button>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <input
+              type="time"
+              :value="formattedStartTime"
+              @change="onStartTimeChange"
+              class="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-slate-700 dark:text-slate-200 outline-none text-xs focus:border-blue-500"
+              placeholder="Bắt đầu"
+            />
+            <span class="text-slate-400">→</span>
+            <input
+              type="time"
+              :value="formattedEndTime"
+              @change="onEndTimeChange"
+              class="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-slate-700 dark:text-slate-200 outline-none text-xs focus:border-blue-500"
+              placeholder="Kết thúc"
+            />
           </div>
         </div>
       </div>

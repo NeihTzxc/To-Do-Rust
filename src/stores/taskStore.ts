@@ -1,6 +1,16 @@
 import { defineStore } from 'pinia';
 import { invoke } from '@tauri-apps/api/core';
-import type { Task, TaskStatus, Priority, FilterType, ViewMode, CreateTaskPayload, UpdateTaskPayload } from '@/types/task';
+import type {
+  Task,
+  TaskStatus,
+  Priority,
+  FilterType,
+  ViewMode,
+  CalendarViewMode,
+  NavigationTab,
+  CreateTaskPayload,
+  UpdateTaskPayload,
+} from '@/types/task';
 
 function isTodayOrOverdue(timestamp: number | null): boolean {
   if (!timestamp) return false;
@@ -10,42 +20,80 @@ function isTodayOrOverdue(timestamp: number | null): boolean {
 }
 
 // Fallback in-memory initial data for browser preview when tauri is not injected
+const now = Date.now();
+const todayDate = new Date();
+const startOfToday = new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate()).getTime();
+
 const mockTasks: Task[] = [
   {
     id: 'demo-1',
-    title: 'Chào mừng bạn đến với TickTask!',
-    description: 'Ứng dụng quản lý công việc phong cách TickTick được xây dựng trên Tauri v2, Vue 3, Tailwind CSS và SQLite Local-first.',
-    status: 'todo',
+    title: 'Họp giao ban dự án & Kế hoạch tuần',
+    description: 'Rà soát tiến độ tuần qua và phân bổ nhiệm vụ mới cho các thành viên.',
+    status: 'in_progress',
     priority: 3,
-    due_date: Date.now(),
-    created_at: Date.now() - 3600000,
-    updated_at: Date.now(),
+    due_date: startOfToday + 18 * 3600000,
+    start_time: startOfToday + 9 * 3600000, // 09:00
+    end_time: startOfToday + 10.5 * 3600000, // 10:30
+    created_at: now - 3600000,
+    updated_at: now,
+    deleted_at: null,
+    sync_status: 'synced',
+  },
+  {
+    id: 'demo-2',
+    title: 'Thiết kế giao diện Calendar TickTick',
+    description: 'Hoàn thiện Time-blocking Grid, Drag & Drop, Unscheduled Drawer.',
+    status: 'todo',
+    priority: 2,
+    due_date: startOfToday + 20 * 3600000,
+    start_time: startOfToday + 13 * 3600000, // 13:00
+    end_time: startOfToday + 15 * 3600000, // 15:00
+    created_at: now - 7200000,
+    updated_at: now,
     deleted_at: null,
     sync_status: 'pending',
   },
   {
-    id: 'demo-2',
-    title: 'Khám phá chế độ xem Bảng Kanban',
-    description: 'Thử kéo và thả thẻ này sang cột "Đang làm" hoặc "Hoàn thành" để xem hiệu ứng chuyển trạng thái mượt mà.',
-    status: 'in_progress',
-    priority: 2,
-    due_date: Date.now() + 86400000,
-    created_at: Date.now() - 7200000,
-    updated_at: Date.now(),
+    id: 'demo-3',
+    title: 'Kiểm tra code & Unit test Rust backend',
+    description: 'Chạy cargo test và kiểm tra các câu truy vấn SQLite.',
+    status: 'todo',
+    priority: 1,
+    due_date: startOfToday + 22 * 3600000,
+    start_time: startOfToday + 16 * 3600000, // 16:00
+    end_time: startOfToday + 17.5 * 3600000, // 17:30
+    created_at: now - 86400000,
+    updated_at: now,
     deleted_at: null,
     sync_status: 'synced',
   },
   {
-    id: 'demo-3',
-    title: 'Thử thanh thêm nhanh Quick Add',
-    description: 'Gõ tiêu đề công việc, chọn cờ ưu tiên và hạn chót ở thanh nhập phía trên rồi nhấn Enter!',
-    status: 'done',
-    priority: 1,
+    id: 'demo-4',
+    title: 'Chuẩn bị tài liệu hướng dẫn sử dụng',
+    description: 'Viết tài liệu chi tiết về cách dùng phím tắt và tính năng xếp lịch.',
+    status: 'todo',
+    priority: 2,
     due_date: null,
-    created_at: Date.now() - 86400000,
-    updated_at: Date.now(),
+    start_time: null,
+    end_time: null,
+    created_at: now - 100000,
+    updated_at: now,
     deleted_at: null,
-    sync_status: 'synced',
+    sync_status: 'pending',
+  },
+  {
+    id: 'demo-5',
+    title: 'Đánh giá bảo mật và mã hóa Local-first DB',
+    description: 'Kiểm tra phân quyền thư mục sqlite và backup dữ liệu tự động.',
+    status: 'todo',
+    priority: 3,
+    due_date: null,
+    start_time: null,
+    end_time: null,
+    created_at: now - 200000,
+    updated_at: now,
+    deleted_at: null,
+    sync_status: 'pending',
   },
 ];
 
@@ -53,13 +101,19 @@ export const useTaskStore = defineStore('tasks', {
   state: () => ({
     tasks: [] as Task[],
     selectedTaskId: null as string | null,
+    currentNavTab: 'calendar' as NavigationTab,
+    calendarViewMode: 'week' as CalendarViewMode,
+    calendarCurrentDate: Date.now(),
+    isUnscheduledOpen: true,
+    isNightCollapsed: true,
     currentFilter: 'all' as FilterType,
     currentView: 'list' as ViewMode,
     searchQuery: '',
     isLoading: false,
     errorMessage: null as string | null,
-    isDarkMode: true,
+    isDarkMode: false,
     isSidebarCollapsed: false,
+    isSearchModalOpen: false,
     isTauriEnv: typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window,
   }),
 
@@ -83,6 +137,14 @@ export const useTaskStore = defineStore('tasks', {
 
     completedTasks: (state): Task[] => {
       return state.tasks.filter((t) => t.status === 'done');
+    },
+
+    unscheduledTasks: (state): Task[] => {
+      return state.tasks.filter((t) => t.status !== 'done' && (!t.start_time || !t.end_time));
+    },
+
+    scheduledTasks: (state): Task[] => {
+      return state.tasks.filter((t) => !!(t.start_time && t.end_time));
     },
 
     pendingSyncCount: (state): number => {
@@ -160,7 +222,7 @@ export const useTaskStore = defineStore('tasks', {
       if (savedTheme) {
         this.isDarkMode = savedTheme === 'dark';
       } else {
-        this.isDarkMode = true; // default Dark mode
+        this.isDarkMode = false; // default Light mode
       }
       this.applyTheme();
 
@@ -180,6 +242,58 @@ export const useTaskStore = defineStore('tasks', {
     toggleTheme() {
       this.isDarkMode = !this.isDarkMode;
       this.applyTheme();
+    },
+
+    setNavTab(tab: NavigationTab) {
+      this.currentNavTab = tab;
+    },
+
+    setCalendarViewMode(mode: CalendarViewMode) {
+      this.calendarViewMode = mode;
+    },
+
+    setCalendarDate(timestamp: number) {
+      this.calendarCurrentDate = timestamp;
+    },
+
+    prevCalendarPeriod() {
+      const d = new Date(this.calendarCurrentDate);
+      if (this.calendarViewMode === 'day') {
+        d.setDate(d.getDate() - 1);
+      } else if (this.calendarViewMode === 'week') {
+        d.setDate(d.getDate() - 7);
+      } else if (this.calendarViewMode === 'month') {
+        d.setMonth(d.getMonth() - 1);
+      } else {
+        d.setDate(d.getDate() - 7);
+      }
+      this.calendarCurrentDate = d.getTime();
+    },
+
+    nextCalendarPeriod() {
+      const d = new Date(this.calendarCurrentDate);
+      if (this.calendarViewMode === 'day') {
+        d.setDate(d.getDate() + 1);
+      } else if (this.calendarViewMode === 'week') {
+        d.setDate(d.getDate() + 7);
+      } else if (this.calendarViewMode === 'month') {
+        d.setMonth(d.getMonth() + 1);
+      } else {
+        d.setDate(d.getDate() + 7);
+      }
+      this.calendarCurrentDate = d.getTime();
+    },
+
+    todayCalendarPeriod() {
+      this.calendarCurrentDate = Date.now();
+    },
+
+    toggleUnscheduled() {
+      this.isUnscheduledOpen = !this.isUnscheduledOpen;
+    },
+
+    toggleNightCollapsed() {
+      this.isNightCollapsed = !this.isNightCollapsed;
     },
 
     toggleSidebar() {
@@ -230,6 +344,8 @@ export const useTaskStore = defineStore('tasks', {
             description: payload.description ?? null,
             priority: payload.priority ?? 2,
             dueDate: payload.due_date ?? null,
+            startTime: payload.start_time ?? null,
+            endTime: payload.end_time ?? null,
           });
           this.tasks.unshift(created);
           return created;
@@ -242,6 +358,8 @@ export const useTaskStore = defineStore('tasks', {
             status: 'todo',
             priority: (payload.priority as Priority) ?? 2,
             due_date: payload.due_date ?? null,
+            start_time: payload.start_time ?? null,
+            end_time: payload.end_time ?? null,
             created_at: now,
             updated_at: now,
             deleted_at: null,
@@ -268,6 +386,8 @@ export const useTaskStore = defineStore('tasks', {
           status: payload.status,
           priority: payload.priority,
           due_date: payload.due_date ?? null,
+          start_time: payload.start_time !== undefined ? payload.start_time : this.tasks[idx].start_time,
+          end_time: payload.end_time !== undefined ? payload.end_time : this.tasks[idx].end_time,
           updated_at: Date.now(),
           sync_status: 'pending',
         };
@@ -282,6 +402,8 @@ export const useTaskStore = defineStore('tasks', {
             status: payload.status,
             priority: payload.priority,
             dueDate: payload.due_date ?? null,
+            startTime: payload.start_time !== undefined ? payload.start_time : (this.tasks[idx]?.start_time ?? null),
+            endTime: payload.end_time !== undefined ? payload.end_time : (this.tasks[idx]?.end_time ?? null),
           });
           if (idx !== -1) {
             this.tasks[idx] = updated;
@@ -292,9 +414,36 @@ export const useTaskStore = defineStore('tasks', {
       } catch (err: any) {
         console.error('Lỗi cập nhật task:', err);
         this.errorMessage = String(err);
-        // revert by re-fetching
         await this.fetchTasks();
         return null;
+      }
+    },
+
+    async updateTaskSchedule(id: string, startTime: number | null, endTime: number | null): Promise<void> {
+      const task = this.tasks.find((t) => t.id === id);
+      if (!task) return;
+
+      task.start_time = startTime;
+      task.end_time = endTime;
+      task.updated_at = Date.now();
+      task.sync_status = 'pending';
+
+      try {
+        if (this.isTauriEnv) {
+          const updated = await invoke<Task>('update_task_schedule', {
+            id,
+            startTime,
+            endTime,
+          });
+          const idx = this.tasks.findIndex((t) => t.id === id);
+          if (idx !== -1) {
+            this.tasks[idx] = updated;
+          }
+        }
+      } catch (err: any) {
+        console.error('Lỗi cập nhật lịch task:', err);
+        this.errorMessage = String(err);
+        await this.fetchTasks();
       }
     },
 
@@ -349,7 +498,6 @@ export const useTaskStore = defineStore('tasks', {
     },
 
     async deleteTask(id: string): Promise<void> {
-      // Remove from active list
       this.tasks = this.tasks.filter((t) => t.id !== id);
       if (this.selectedTaskId === id) {
         this.selectedTaskId = null;
@@ -363,6 +511,49 @@ export const useTaskStore = defineStore('tasks', {
         console.error('Lỗi xóa task:', err);
         this.errorMessage = String(err);
         await this.fetchTasks();
+      }
+    },
+
+    openSearchModal() {
+      this.isSearchModalOpen = true;
+    },
+
+    closeSearchModal() {
+      this.isSearchModalOpen = false;
+    },
+
+    toggleSearchModal() {
+      this.isSearchModalOpen = !this.isSearchModalOpen;
+    },
+
+    async searchTasksRemote(query: string): Promise<Task[]> {
+      try {
+        if (this.isTauriEnv) {
+          return await invoke<Task[]>('search_tasks', { query });
+        } else {
+          const q = query.trim().toLowerCase();
+          if (!q) {
+            return this.tasks.slice(0, 8);
+          }
+          const removeAccents = (str: string) =>
+            str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+          const normQ = removeAccents(q);
+          return this.tasks
+            .filter((t) => {
+              const normTitle = removeAccents(t.title);
+              const normDesc = t.description ? removeAccents(t.description) : '';
+              return normTitle.includes(normQ) || normDesc.includes(normQ);
+            })
+            .sort((a, b) => {
+              const doneA = a.status === 'done' ? 1 : 0;
+              const doneB = b.status === 'done' ? 1 : 0;
+              return doneA - doneB || b.updated_at - a.updated_at;
+            })
+            .slice(0, 50);
+        }
+      } catch (err: any) {
+        console.error('Lỗi tìm kiếm task:', err);
+        return [];
       }
     },
   },

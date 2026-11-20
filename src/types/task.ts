@@ -9,6 +9,8 @@ export interface Task {
   status: TaskStatus;
   priority: Priority;
   due_date: number | null;
+  start_time: number | null;
+  end_time: number | null;
   created_at: number;
   updated_at: number;
   deleted_at: number | null;
@@ -19,11 +21,17 @@ export type FilterType = 'all' | 'today' | 'high_priority' | 'completed';
 
 export type ViewMode = 'list' | 'kanban';
 
+export type CalendarViewMode = 'day' | 'week' | 'month' | 'agenda';
+
+export type NavigationTab = 'tasks' | 'calendar' | 'search';
+
 export interface CreateTaskPayload {
   title: string;
   description?: string;
   priority?: number;
   due_date?: number | null;
+  start_time?: number | null;
+  end_time?: number | null;
 }
 
 export interface UpdateTaskPayload {
@@ -33,4 +41,6 @@ export interface UpdateTaskPayload {
   status: TaskStatus;
   priority: Priority;
   due_date?: number | null;
+  start_time?: number | null;
+  end_time?: number | null;
 }

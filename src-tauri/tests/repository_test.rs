@@ -1,5 +1,5 @@
-use rust_task_mgr::domain::task::{CreateTaskInput, Priority, TaskStatus, UpdateTaskInput};
-use rust_task_mgr::storage::{SqliteTaskRepo, TaskRepository};
+use rust_task_mgr_lib::domain::task::{CreateTaskInput, Priority, TaskStatus, UpdateTaskInput};
+use rust_task_mgr_lib::storage::{SqliteTaskRepo, TaskRepository};
 
 #[tokio::test]
 async fn test_sqlite_repository_crud_and_sync() {
@@ -17,6 +17,8 @@ async fn test_sqlite_repository_crud_and_sync() {
         description: Some("Xây dựng ứng dụng Desktop Local-first".to_string()),
         priority: Priority::High,
         due_date: None,
+        start_time: Some(1735689600000),
+        end_time: Some(1735693200000),
     };
 
     let created = repo.create_task(input).await.expect("Tạo task thất bại");
@@ -55,6 +57,8 @@ async fn test_sqlite_repository_crud_and_sync() {
         status: TaskStatus::InProgress,
         priority: Priority::High,
         due_date: Some(1735689600000),
+        start_time: Some(1735690000000),
+        end_time: Some(1735695000000),
     };
 
     let updated = repo.update_task(update_input).await.expect("Cập nhật task thất bại");
@@ -62,6 +66,15 @@ async fn test_sqlite_repository_crud_and_sync() {
     assert_eq!(updated.status, TaskStatus::InProgress);
     assert_eq!(updated.sync_status, "pending");
     assert!(updated.updated_at >= toggled.updated_at);
+
+    // Test search_tasks với tiếng Việt không dấu
+    let search_results = repo.search_tasks("hoc rust").await.expect("Tìm kiếm task thất bại");
+    assert_eq!(search_results.len(), 1);
+    assert_eq!(search_results[0].id, created.id);
+
+    let search_desc = repo.search_tasks("chi tiet hon").await.expect("Tìm kiếm theo mô tả thất bại");
+    assert_eq!(search_desc.len(), 1);
+    assert_eq!(search_desc[0].id, created.id);
 
     // 5. Xóa mềm (soft_delete_task)
     repo.soft_delete_task(&created.id).await.expect("Xóa mềm task thất bại");

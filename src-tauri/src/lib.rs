@@ -21,9 +21,11 @@ pub fn run() {
             commands::get_tasks,
             commands::create_task,
             commands::update_task,
+            commands::update_task_schedule,
             commands::toggle_task_status,
             commands::move_task_status,
-            commands::delete_task
+            commands::delete_task,
+            commands::search_tasks
         ])
         .run(tauri::generate_context!())
         .expect("Lỗi khi chạy ứng dụng Tauri");

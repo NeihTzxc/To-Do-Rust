@@ -107,6 +107,8 @@ pub struct Task {
     pub status: TaskStatus,
     pub priority: Priority,
     pub due_date: Option<i64>,
+    pub start_time: Option<i64>,
+    pub end_time: Option<i64>,
     pub created_at: i64,
     pub updated_at: i64,
     pub deleted_at: Option<i64>,
@@ -130,6 +132,8 @@ impl Task {
             status: TaskStatus::Todo,
             priority,
             due_date,
+            start_time: None,
+            end_time: None,
             created_at: now,
             updated_at: now,
             deleted_at: None,
@@ -144,6 +148,8 @@ pub struct CreateTaskInput {
     pub description: Option<String>,
     pub priority: Priority,
     pub due_date: Option<i64>,
+    pub start_time: Option<i64>,
+    pub end_time: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -154,4 +160,6 @@ pub struct UpdateTaskInput {
     pub status: TaskStatus,
     pub priority: Priority,
     pub due_date: Option<i64>,
+    pub start_time: Option<i64>,
+    pub end_time: Option<i64>,
 }

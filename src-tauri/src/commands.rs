@@ -18,6 +18,8 @@ pub async fn create_task(
     description: Option<String>,
     priority: Option<i64>,
     due_date: Option<i64>,
+    start_time: Option<i64>,
+    end_time: Option<i64>,
 ) -> Result<Task, String> {
     let priority_val = priority.map(Priority::from_i64).unwrap_or(Priority::Medium);
     let input = CreateTaskInput {
@@ -25,6 +27,8 @@ pub async fn create_task(
         description,
         priority: priority_val,
         due_date,
+        start_time,
+        end_time,
     };
     state.create_task(input).await.map_err(|e| e.to_string())
 }
@@ -38,6 +42,8 @@ pub async fn update_task(
     status: String,
     priority: i64,
     due_date: Option<i64>,
+    start_time: Option<i64>,
+    end_time: Option<i64>,
 ) -> Result<Task, String> {
     let input = UpdateTaskInput {
         id,
@@ -46,8 +52,23 @@ pub async fn update_task(
         status: TaskStatus::from_str_loose(&status),
         priority: Priority::from_i64(priority),
         due_date,
+        start_time,
+        end_time,
     };
     state.update_task(input).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn update_task_schedule(
+    state: State<'_, Arc<dyn TaskRepository>>,
+    id: String,
+    start_time: Option<i64>,
+    end_time: Option<i64>,
+) -> Result<Task, String> {
+    state
+        .update_schedule(&id, start_time, end_time)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -74,4 +95,12 @@ pub async fn delete_task(
     id: String,
 ) -> Result<(), String> {
     state.soft_delete_task(&id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn search_tasks(
+    state: State<'_, Arc<dyn TaskRepository>>,
+    query: String,
+) -> Result<Vec<Task>, String> {
+    state.search_tasks(&query).await.map_err(|e| e.to_string())
 }
