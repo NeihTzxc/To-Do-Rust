@@ -18,7 +18,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_repr = "0.1"
 sqlx = { version = "0.9.1", features = ["runtime-tokio", "sqlite", "uuid", "chrono", "migrate"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
 uuid = { version = "1", features = ["v7", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 directories = "6.0.0"
