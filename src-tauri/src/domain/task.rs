@@ -1,15 +1,25 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use serde_repr::{Deserialize_repr, Serialize_repr};
+use serde_repr::Serialize_repr;
 use std::fmt;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
     Todo,
     InProgress,
     Done,
+}
+
+impl<'de> Deserialize<'de> for TaskStatus {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(TaskStatus::from_str_loose(&s))
+    }
 }
 
 impl TaskStatus {
@@ -55,12 +65,50 @@ impl fmt::Display for TaskStatus {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize_repr, Deserialize_repr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize_repr)]
 #[repr(i64)]
 pub enum Priority {
     Low = 1,
     Medium = 2,
     High = 3,
+}
+
+impl<'de> Deserialize<'de> for Priority {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct PriorityVisitor;
+        impl<'de> serde::de::Visitor<'de> for PriorityVisitor {
+            type Value = Priority;
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("an integer or string representing priority")
+            }
+            fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(Priority::from_i64(v))
+            }
+            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(Priority::from_i64(v as i64))
+            }
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match v.to_lowercase().as_str() {
+                    "high" | "3" => Ok(Priority::High),
+                    "low" | "1" => Ok(Priority::Low),
+                    _ => Ok(Priority::Medium),
+                }
+            }
+        }
+        deserializer.deserialize_any(PriorityVisitor)
+    }
 }
 
 impl Priority {
@@ -99,6 +147,14 @@ impl fmt::Display for Priority {
     }
 }
 
+fn default_sync_status() -> String {
+    "synced".to_string()
+}
+
+fn default_now() -> i64 {
+    Utc::now().timestamp_millis()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
     pub id: String,
@@ -110,9 +166,12 @@ pub struct Task {
     pub due_date: Option<i64>,
     pub start_time: Option<i64>,
     pub end_time: Option<i64>,
+    #[serde(default = "default_now")]
     pub created_at: i64,
+    #[serde(default = "default_now")]
     pub updated_at: i64,
     pub deleted_at: Option<i64>,
+    #[serde(default = "default_sync_status")]
     pub sync_status: String,
 }
 

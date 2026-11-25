@@ -15,6 +15,8 @@ import {
   AlertCircle,
   Eye,
   EyeOff,
+  Minimize2,
+  Power,
 } from 'lucide-vue-next';
 
 const store = useTaskStore();
@@ -294,6 +296,40 @@ function handleClose() {
                 Lưu ý: Mọi công việc lưu trên SQLite cục bộ vẫn được giữ nguyên an toàn.
               </p>
             </div>
+          </div>
+
+          <!-- System Tray & Background Settings (Dùng chung cho cả Guest & User) -->
+          <div class="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                  <Minimize2 class="w-3.5 h-3.5 text-blue-500" />
+                  <span>Thu nhỏ xuống khay hệ thống (Tray)</span>
+                </div>
+                <p class="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
+                  Khi bấm 'X', ứng dụng ẩn xuống khay để tiếp tục đồng bộ ngầm
+                </p>
+              </div>
+              <label class="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  :checked="store.closeToTray"
+                  @change="(e: any) => store.setCloseToTray(e.target.checked)"
+                  class="sr-only peer"
+                />
+                <div class="w-9 h-5 bg-slate-300 peer-focus:outline-hidden rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600"></div>
+              </label>
+            </div>
+
+            <!-- Nút Thoát hẳn ứng dụng -->
+            <button
+              type="button"
+              @click="store.exitApp"
+              class="w-full py-2 px-3 bg-slate-50 hover:bg-rose-50 dark:bg-slate-800/60 dark:hover:bg-rose-950/40 border border-slate-200/80 dark:border-slate-700/80 hover:border-rose-200 dark:hover:border-rose-900 text-slate-600 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 text-xs font-medium rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Power class="w-3.5 h-3.5 text-rose-500" />
+              <span>Thoát hẳn ứng dụng (Tắt chạy ngầm)</span>
+            </button>
           </div>
         </div>
       </div>
