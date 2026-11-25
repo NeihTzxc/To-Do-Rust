@@ -4,6 +4,13 @@
   "description": "Default permissions for the desktop app",
   "windows": ["main"],
   "permissions": [
-    "core:default"
+    "core:default",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "core:window:allow-unminimize",
+    "core:window:allow-is-visible",
+    "core:window:allow-destroy",
+    "core:window:allow-close"
   ]
 }

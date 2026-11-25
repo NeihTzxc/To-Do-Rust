@@ -9,6 +9,7 @@ import {
   Sun,
   Moon,
   User,
+  Power,
 } from 'lucide-vue-next';
 
 const store = useTaskStore();
@@ -160,6 +161,16 @@ const syncTooltip = computed(() => {
           v-else-if="store.isLoggedIn"
           class="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-emerald-500"
         ></span>
+      </button>
+
+      <!-- Nút Thoát hoàn toàn ứng dụng -->
+      <button
+        type="button"
+        @click="store.exitApp"
+        class="w-9 h-9 rounded-lg flex items-center justify-center text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+        title="Thoát hẳn ứng dụng (Tắt chạy ngầm)"
+      >
+        <Power class="w-4 h-4" />
       </button>
     </div>
   </nav>

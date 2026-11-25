@@ -97,3 +97,75 @@ async fn test_sqlite_repository_crud_and_sync() {
     assert!(deleted_at.is_some());
     assert_eq!(sync_status, "pending");
 }
+
+#[tokio::test]
+async fn test_deserialize_and_upsert_supabase_task() {
+    let json_str = r#"{
+        "id": "01a20817-3654-7698-937b-5637aa9652b6",
+        "user_id": "fdeaf58c-4352-4949-9507-76c9809f16aa",
+        "title": "Tạo US và các AC",
+        "description": "-Tạo tất cả các US và AC cho siêu trí nhớ",
+        "status": "todo",
+        "priority": 3,
+        "due_date": 1795431600000,
+        "start_time": 1795397400000,
+        "end_time": 1795431600000,
+        "created_at": 1795432068692,
+        "updated_at": 1795432507157,
+        "deleted_at": null
+    }"#;
+
+    let task: rust_task_mgr_lib::domain::task::Task =
+        serde_json::from_str(json_str).expect("Deserialize Supabase task without sync_status must succeed");
+    assert_eq!(task.sync_status, "synced");
+    assert_eq!(task.priority, Priority::High);
+    assert_eq!(task.status, TaskStatus::Todo);
+
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    let db_path = temp_dir.path().join("test_sync.db");
+    let repo = SqliteTaskRepo::new_with_path(&db_path)
+        .await
+        .expect("init repo");
+
+    // Giả lập user đã đăng nhập
+    let session = rust_task_mgr_lib::domain::auth::AuthSession {
+        user_id: "fdeaf58c-4352-4949-9507-76c9809f16aa".to_string(),
+        email: "ngocthientcvan.b10@gmail.com".to_string(),
+        access_token: "test_token".to_string(),
+        refresh_token: "test_refresh".to_string(),
+        expires_at: 2000000000,
+    };
+    repo.save_session(&session).await.expect("save session");
+
+    // Upsert task được pull về từ cloud
+    let inserted = repo.upsert_pulled_task(&task).await.expect("upsert task");
+    assert!(inserted);
+
+    // Kiểm tra task xuất hiện trong list_active_tasks
+    let active_tasks = repo.list_active_tasks().await.expect("list_active_tasks");
+    assert_eq!(active_tasks.len(), 1);
+    assert_eq!(active_tasks[0].id, "01a20817-3654-7698-937b-5637aa9652b6");
+    assert_eq!(active_tasks[0].title, "Tạo US và các AC");
+    assert_eq!(active_tasks[0].sync_status, "synced");
+}
+
+#[tokio::test]
+async fn test_sync_engine_fallback_when_offline() {
+    use std::sync::Arc;
+    use rust_task_mgr_lib::sync::{SupabaseAuthClient, SyncEngine};
+
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    let db_path = temp_dir.path().join("test_fallback.db");
+    let repo = Arc::new(
+        SqliteTaskRepo::new_with_path(&db_path)
+            .await
+            .expect("init repo"),
+    );
+
+    let auth_client = SupabaseAuthClient::new();
+    let (engine, _rx) = SyncEngine::new(repo.clone(), auth_client);
+
+    // Khi chưa cấu hình / chưa đăng nhập, get_tasks_online_or_offline fallback về SQLite
+    let tasks = engine.get_tasks_online_or_offline().await.expect("fallback success");
+    assert_eq!(tasks.len(), 0);
+}

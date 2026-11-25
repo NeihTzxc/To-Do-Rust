@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::State;
 
@@ -8,14 +9,14 @@ use crate::sync::{SupabaseAuthClient, SyncEngine};
 
 #[tauri::command]
 pub async fn get_tasks(
-    state: State<'_, Arc<dyn TaskRepository>>,
+    sync_engine: State<'_, Arc<SyncEngine>>,
+    _state: State<'_, Arc<dyn TaskRepository>>,
 ) -> Result<Vec<Task>, String> {
-    state.list_active_tasks().await.map_err(|e| e.to_string())
+    sync_engine.get_tasks_online_or_offline().await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn create_task(
-    state: State<'_, Arc<dyn TaskRepository>>,
     sync_engine: State<'_, Arc<SyncEngine>>,
     title: String,
     description: Option<String>,
@@ -33,14 +34,11 @@ pub async fn create_task(
         start_time,
         end_time,
     };
-    let task = state.create_task(input).await.map_err(|e| e.to_string())?;
-    sync_engine.trigger_sync();
-    Ok(task)
+    sync_engine.create_task_online(input).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn update_task(
-    state: State<'_, Arc<dyn TaskRepository>>,
     sync_engine: State<'_, Arc<SyncEngine>>,
     id: String,
     title: String,
@@ -61,60 +59,46 @@ pub async fn update_task(
         start_time,
         end_time,
     };
-    let task = state.update_task(input).await.map_err(|e| e.to_string())?;
-    sync_engine.trigger_sync();
-    Ok(task)
+    sync_engine.update_task_online(input).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn update_task_schedule(
-    state: State<'_, Arc<dyn TaskRepository>>,
     sync_engine: State<'_, Arc<SyncEngine>>,
     id: String,
     start_time: Option<i64>,
     end_time: Option<i64>,
 ) -> Result<Task, String> {
-    let task = state
-        .update_schedule(&id, start_time, end_time)
+    sync_engine
+        .update_schedule_online(&id, start_time, end_time)
         .await
-        .map_err(|e| e.to_string())?;
-    sync_engine.trigger_sync();
-    Ok(task)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn toggle_task_status(
-    state: State<'_, Arc<dyn TaskRepository>>,
     sync_engine: State<'_, Arc<SyncEngine>>,
     id: String,
 ) -> Result<Task, String> {
-    let task = state.toggle_status(&id).await.map_err(|e| e.to_string())?;
-    sync_engine.trigger_sync();
-    Ok(task)
+    sync_engine.toggle_status_online(&id).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn move_task_status(
-    state: State<'_, Arc<dyn TaskRepository>>,
     sync_engine: State<'_, Arc<SyncEngine>>,
     id: String,
     status: String,
 ) -> Result<Task, String> {
     let new_status = TaskStatus::from_str_loose(&status);
-    let task = state.change_status(&id, new_status).await.map_err(|e| e.to_string())?;
-    sync_engine.trigger_sync();
-    Ok(task)
+    sync_engine.change_status_online(&id, new_status).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn delete_task(
-    state: State<'_, Arc<dyn TaskRepository>>,
     sync_engine: State<'_, Arc<SyncEngine>>,
     id: String,
 ) -> Result<(), String> {
-    state.soft_delete_task(&id).await.map_err(|e| e.to_string())?;
-    sync_engine.trigger_sync();
-    Ok(())
+    sync_engine.delete_task_online(&id).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -140,7 +124,7 @@ pub async fn login(
         .await
         .map_err(|e| e.to_string())?;
 
-    sync_engine.trigger_sync();
+    let _ = sync_engine.sync_cycle().await;
 
     Ok(UserInfo {
         user_id: session.user_id,
@@ -161,7 +145,7 @@ pub async fn register(
         .await
         .map_err(|e| e.to_string())?;
 
-    sync_engine.trigger_sync();
+    let _ = sync_engine.sync_cycle().await;
 
     Ok(UserInfo {
         user_id: session.user_id,
@@ -192,8 +176,7 @@ pub async fn get_current_user(
 pub async fn trigger_sync_now(
     sync_engine: State<'_, Arc<SyncEngine>>,
 ) -> Result<(), String> {
-    sync_engine.trigger_sync();
-    Ok(())
+    sync_engine.sync_cycle().await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -201,4 +184,21 @@ pub async fn get_sync_status(
     sync_engine: State<'_, Arc<SyncEngine>>,
 ) -> Result<SyncStatusState, String> {
     Ok(sync_engine.get_status().await)
+}
+
+// --- App Lifecycle & System Tray Commands ---
+
+#[tauri::command]
+pub fn exit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
+#[tauri::command]
+pub fn set_close_to_tray(state: State<'_, Arc<AtomicBool>>, enabled: bool) {
+    state.store(enabled, Ordering::SeqCst);
+}
+
+#[tauri::command]
+pub fn get_close_to_tray(state: State<'_, Arc<AtomicBool>>) -> bool {
+    state.load(Ordering::SeqCst)
 }

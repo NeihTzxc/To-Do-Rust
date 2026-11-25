@@ -57,3 +57,19 @@ CREATE POLICY "Users can delete own tasks"
 GRANT USAGE ON SCHEMA public TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.tasks TO authenticated;
 
+-- 6. Trigger tự động cập nhật updated_at (milliseconds) khi chỉnh sửa task trực tiếp trên Supabase Dashboard
+CREATE OR REPLACE FUNCTION public.handle_tasks_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS set_tasks_updated_at ON public.tasks;
+CREATE TRIGGER set_tasks_updated_at
+    BEFORE UPDATE ON public.tasks
+    FOR EACH ROW
+    EXECUTE FUNCTION public.handle_tasks_updated_at();
+
+

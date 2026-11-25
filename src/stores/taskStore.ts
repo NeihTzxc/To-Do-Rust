@@ -130,6 +130,7 @@ export const useTaskStore = defineStore('tasks', {
     authLoading: false,
     authError: null as string | null,
     syncTriggerLoading: false,
+    closeToTray: true,
     isTauriEnv: typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window,
   }),
 
@@ -246,6 +247,12 @@ export const useTaskStore = defineStore('tasks', {
       }
       this.applyTheme();
 
+      const savedTray = localStorage.getItem('close_to_tray');
+      this.closeToTray = savedTray === null ? true : savedTray === 'true';
+      if (this.isTauriEnv) {
+        invoke('set_close_to_tray', { enabled: this.closeToTray }).catch(() => {});
+      }
+
       await this.initAuthAndSync();
       await this.fetchTasks();
     },
@@ -262,6 +269,10 @@ export const useTaskStore = defineStore('tasks', {
             console.log('[Sync] Event tasks-synced received from Rust backend, refreshing local tasks...');
             await this.fetchTasks();
             await this.fetchSyncStatus();
+          });
+
+          await listen<SyncStatusState>('sync-status-changed', (event) => {
+            this.syncState = event.payload;
           });
         } catch (e) {
           console.warn('Init auth/sync warning:', e);
@@ -702,15 +713,38 @@ export const useTaskStore = defineStore('tasks', {
       try {
         if (this.isTauriEnv) {
           await invoke('trigger_sync_now');
+          await this.fetchTasks();
           await this.fetchSyncStatus();
         }
       } catch (err: any) {
         console.error('Lỗi kích hoạt sync:', err);
       } finally {
-        setTimeout(async () => {
-          this.syncTriggerLoading = false;
-          await this.fetchSyncStatus();
-        }, 1200);
+        this.syncTriggerLoading = false;
+        await this.fetchSyncStatus();
+      }
+    },
+
+    async setCloseToTray(val: boolean): Promise<void> {
+      this.closeToTray = val;
+      localStorage.setItem('close_to_tray', String(val));
+      if (this.isTauriEnv) {
+        try {
+          await invoke('set_close_to_tray', { enabled: val });
+        } catch (e) {
+          console.error('set_close_to_tray error:', e);
+        }
+      }
+    },
+
+    async exitApp(): Promise<void> {
+      if (this.isTauriEnv) {
+        try {
+          await invoke('exit_app');
+        } catch (e) {
+          console.error('exit_app error:', e);
+        }
+      } else {
+        window.close();
       }
     },
   },
