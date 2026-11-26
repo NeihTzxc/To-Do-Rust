@@ -11,6 +11,7 @@ import {
   Clock,
   Layers,
   Database,
+  Save,
 } from 'lucide-vue-next';
 
 const store = useTaskStore();
@@ -24,6 +25,7 @@ const priority = ref<Priority>(2);
 const dueDate = ref<number | null>(null);
 const startTime = ref<number | null>(null);
 const endTime = ref<number | null>(null);
+const isSaving = ref(false);
 
 // Watch for selected task changes to update local reactive form state
 watch(
@@ -42,18 +44,11 @@ watch(
   { immediate: true }
 );
 
-// Auto-save debounce timer
-let debounceTimer: any = null;
-
-function triggerAutoSave() {
+async function saveTask() {
   if (!currentTask.value) return;
 
-  if (debounceTimer) {
-    clearTimeout(debounceTimer);
-  }
-
-  debounceTimer = setTimeout(async () => {
-    if (!currentTask.value) return;
+  isSaving.value = true;
+  try {
     await store.updateTask({
       id: currentTask.value.id,
       title: title.value.trim() || currentTask.value.title,
@@ -64,33 +59,14 @@ function triggerAutoSave() {
       start_time: startTime.value,
       end_time: endTime.value,
     });
-  }, 400);
-}
-
-function handleBlurSave() {
-  if (debounceTimer) {
-    clearTimeout(debounceTimer);
+  } finally {
+    isSaving.value = false;
   }
-  if (!currentTask.value) return;
-
-  store.updateTask({
-    id: currentTask.value.id,
-    title: title.value.trim() || currentTask.value.title,
-    description: description.value.trim() ? description.value.trim() : null,
-    status: status.value,
-    priority: priority.value,
-    due_date: dueDate.value,
-    start_time: startTime.value,
-    end_time: endTime.value,
-  });
 }
 
 async function handleToggleStatus() {
   if (!currentTask.value) return;
-  await store.toggleTaskStatus(currentTask.value.id);
-  if (currentTask.value) {
-    status.value = currentTask.value.status;
-  }
+  status.value = status.value === 'done' ? 'todo' : 'done';
 }
 
 async function handleDelete() {
@@ -106,10 +82,16 @@ function onDateChange(e: Event) {
     const parts = val.split('-');
     const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]), 23, 59, 59);
     dueDate.value = d.getTime();
+    if (startTime.value != null && endTime.value != null) {
+      const oldStart = new Date(startTime.value);
+      const duration = endTime.value - startTime.value;
+      const newStart = new Date(d.getFullYear(), d.getMonth(), d.getDate(), oldStart.getHours(), oldStart.getMinutes(), oldStart.getSeconds(), oldStart.getMilliseconds());
+      startTime.value = newStart.getTime();
+      endTime.value = startTime.value + duration;
+    }
   } else {
     dueDate.value = null;
   }
-  triggerAutoSave();
 }
 
 const formattedInputDate = computed(() => {
@@ -137,11 +119,10 @@ function onStartTimeChange(e: Event) {
   const val = (e.target as HTMLInputElement).value;
   if (!val) {
     startTime.value = null;
-    triggerAutoSave();
     return;
   }
   const [h, m] = val.split(':').map(Number);
-  const base = startTime.value ? new Date(startTime.value) : (dueDate.value ? new Date(dueDate.value) : new Date());
+  const base = dueDate.value ? new Date(dueDate.value) : (startTime.value ? new Date(startTime.value) : new Date());
   base.setHours(h, m, 0, 0);
   startTime.value = base.getTime();
 
@@ -154,27 +135,23 @@ function onStartTimeChange(e: Event) {
   if (!endTime.value || endTime.value <= startTime.value) {
     endTime.value = startTime.value + 60 * 60 * 1000;
   }
-  triggerAutoSave();
 }
 
 function onEndTimeChange(e: Event) {
   const val = (e.target as HTMLInputElement).value;
   if (!val) {
     endTime.value = null;
-    triggerAutoSave();
     return;
   }
   const [h, m] = val.split(':').map(Number);
-  const base = endTime.value ? new Date(endTime.value) : (startTime.value ? new Date(startTime.value) : new Date());
+  const base = startTime.value ? new Date(startTime.value) : (endTime.value ? new Date(endTime.value) : new Date());
   base.setHours(h, m, 0, 0);
   endTime.value = base.getTime();
-  triggerAutoSave();
 }
 
 function clearSchedule() {
   startTime.value = null;
   endTime.value = null;
-  triggerAutoSave();
 }
 
 function formatDateTime(timestamp: number): string {
@@ -192,7 +169,7 @@ function formatDateTime(timestamp: number): string {
 <template>
   <aside
     v-if="currentTask"
-    class="w-[330px] flex-shrink-0 flex flex-col h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-lg select-none transition-all z-20"
+    class="w-[360px] flex-shrink-0 flex flex-col h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-lg select-none transition-all z-20"
   >
     <!-- Top Action Bar -->
     <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200/80 dark:border-slate-800">
@@ -203,20 +180,30 @@ function formatDateTime(timestamp: number): string {
           @click="handleToggleStatus"
           :class="[
             'w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors',
-            currentTask.status === 'done'
+            status === 'done'
               ? 'bg-emerald-500 border-emerald-500 text-white'
               : 'border-slate-400 hover:border-blue-500 text-transparent'
           ]"
-          :title="currentTask.status === 'done' ? 'Đã hoàn thành' : 'Đánh dấu hoàn thành'"
+          :title="status === 'done' ? 'Đã hoàn thành' : 'Đánh dấu hoàn thành'"
         >
           <Check class="w-3 h-3 stroke-[3]" />
         </button>
-        <span class="text-xs font-semibold text-slate-500 dark:text-slate-400">
-          {{ currentTask.status === 'done' ? 'Đã hoàn thành' : 'Chi tiết công việc' }}
+        <span class="text-sm font-semibold text-slate-500 dark:text-slate-400">
+          {{ status === 'done' ? 'Đã hoàn thành' : 'Chi tiết công việc' }}
         </span>
       </div>
 
       <div class="flex items-center gap-1">
+        <button
+          type="button"
+          @click="saveTask"
+          :disabled="isSaving"
+          class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-wait transition-colors"
+          title="Lưu thay đổi"
+        >
+          <Save class="w-4 h-4" />
+          <span>{{ isSaving ? 'Đang lưu...' : 'Lưu' }}</span>
+        </button>
         <button
           @click="handleDelete"
           class="p-1.5 rounded-md text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
@@ -240,26 +227,23 @@ function formatDateTime(timestamp: number): string {
       <div>
         <textarea
           v-model="title"
-          @input="triggerAutoSave"
-          @blur="handleBlurSave"
           rows="2"
           placeholder="Tên công việc..."
-          class="w-full text-base font-semibold text-slate-900 dark:text-slate-100 bg-transparent border-none outline-none resize-none placeholder-slate-400 leading-snug"
+          class="w-full text-lg font-semibold text-slate-900 dark:text-slate-100 bg-transparent border-none outline-none resize-none placeholder-slate-400 leading-snug"
         />
       </div>
 
       <!-- Properties Grid -->
       <div class="space-y-3 pt-1 border-t border-slate-100 dark:border-slate-800">
         <!-- Status Property -->
-        <div class="flex items-center justify-between text-xs">
+        <div class="flex items-center justify-between text-sm">
           <div class="flex items-center gap-2 text-slate-500 dark:text-slate-400">
-            <Layers class="w-3.5 h-3.5" />
+            <Layers class="w-4 h-4" />
             <span>Trạng thái</span>
           </div>
           <select
             v-model="status"
-            @change="triggerAutoSave"
-            class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-slate-700 dark:text-slate-200 outline-none text-xs focus:border-blue-500"
+            class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1.5 text-slate-700 dark:text-slate-200 outline-none text-sm focus:border-blue-500"
           >
             <option value="todo">Cần làm (Todo)</option>
             <option value="in_progress">Đang làm (In Progress)</option>
@@ -268,9 +252,9 @@ function formatDateTime(timestamp: number): string {
         </div>
 
         <!-- Priority Property -->
-        <div class="flex items-center justify-between text-xs">
+        <div class="flex items-center justify-between text-sm">
           <div class="flex items-center gap-2 text-slate-500 dark:text-slate-400">
-            <Flag class="w-3.5 h-3.5" />
+            <Flag class="w-4 h-4" />
             <span>Độ ưu tiên</span>
           </div>
           <div class="flex items-center gap-1">
@@ -282,24 +266,24 @@ function formatDateTime(timestamp: number): string {
               ]"
               :key="p.val"
               type="button"
-              @click="priority = p.val; triggerAutoSave()"
+              @click="priority = p.val"
               :class="[
-                'px-2 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1',
+                'px-2.5 py-1.5 rounded text-sm font-medium transition-colors flex items-center gap-1',
                 priority === p.val
                   ? 'bg-slate-200 dark:bg-slate-700 font-semibold'
                   : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
               ]"
             >
-              <Flag :class="['w-3 h-3 fill-current', p.color]" />
+              <Flag :class="['w-3.5 h-3.5 fill-current', p.color]" />
               <span>{{ p.label }}</span>
             </button>
           </div>
         </div>
 
         <!-- Due Date Property -->
-        <div class="flex items-center justify-between text-xs">
+        <div class="flex items-center justify-between text-sm">
           <div class="flex items-center gap-2 text-slate-500 dark:text-slate-400">
-            <Calendar class="w-3.5 h-3.5" />
+            <Calendar class="w-4 h-4" />
             <span>Ngày đến hạn</span>
           </div>
           <div class="flex items-center gap-1">
@@ -307,12 +291,12 @@ function formatDateTime(timestamp: number): string {
               type="date"
               :value="formattedInputDate"
               @change="onDateChange"
-              class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-slate-700 dark:text-slate-200 outline-none text-xs focus:border-blue-500"
+              class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1.5 text-slate-700 dark:text-slate-200 outline-none text-sm focus:border-blue-500"
             />
             <button
               v-if="dueDate"
               type="button"
-              @click="dueDate = null; triggerAutoSave()"
+              @click="dueDate = null"
               class="text-slate-400 hover:text-red-500 p-1"
               title="Xóa hạn chót"
             >
@@ -322,17 +306,17 @@ function formatDateTime(timestamp: number): string {
         </div>
 
         <!-- Time-blocking Property (Giờ bắt đầu - Giờ kết thúc) -->
-        <div class="space-y-1.5 pt-1 border-t border-slate-100 dark:border-slate-800 text-xs">
+        <div class="space-y-2 pt-1 border-t border-slate-100 dark:border-slate-800 text-sm">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2 text-slate-500 dark:text-slate-400">
-              <Clock class="w-3.5 h-3.5" />
+              <Clock class="w-4 h-4" />
               <span>Khung giờ Lịch</span>
             </div>
             <button
               v-if="startTime || endTime"
               type="button"
               @click="clearSchedule"
-              class="text-[11px] text-slate-400 hover:text-red-500 transition-colors"
+              class="text-xs text-slate-400 hover:text-red-500 transition-colors"
               title="Xóa giờ trên lịch"
             >
               Xóa giờ
@@ -343,7 +327,7 @@ function formatDateTime(timestamp: number): string {
               type="time"
               :value="formattedStartTime"
               @change="onStartTimeChange"
-              class="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-slate-700 dark:text-slate-200 outline-none text-xs focus:border-blue-500"
+              class="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1.5 text-slate-700 dark:text-slate-200 outline-none text-sm focus:border-blue-500"
               placeholder="Bắt đầu"
             />
             <span class="text-slate-400">→</span>
@@ -351,7 +335,7 @@ function formatDateTime(timestamp: number): string {
               type="time"
               :value="formattedEndTime"
               @change="onEndTimeChange"
-              class="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-slate-700 dark:text-slate-200 outline-none text-xs focus:border-blue-500"
+              class="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1.5 text-slate-700 dark:text-slate-200 outline-none text-sm focus:border-blue-500"
               placeholder="Kết thúc"
             />
           </div>
@@ -360,41 +344,39 @@ function formatDateTime(timestamp: number): string {
 
       <!-- Description / Notes Section -->
       <div class="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
-        <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider">
+        <label class="block text-sm font-semibold text-slate-400 uppercase tracking-wider">
           Ghi chú chi tiết
         </label>
         <textarea
           v-model="description"
-          @input="triggerAutoSave"
-          @blur="handleBlurSave"
           rows="6"
           placeholder="Thêm mô tả, danh sách việc nhỏ, hoặc ghi chú công việc..."
-          class="w-full text-xs text-slate-700 dark:text-slate-200 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 rounded-lg p-2.5 outline-none focus:border-blue-500 dark:focus:border-blue-500 focus:ring-1 focus:ring-blue-500 placeholder-slate-400 leading-relaxed transition-all"
+          class="w-full text-sm text-slate-700 dark:text-slate-200 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 rounded-lg p-3 outline-none focus:border-blue-500 dark:focus:border-blue-500 focus:ring-1 focus:ring-blue-500 placeholder-slate-400 leading-relaxed transition-all"
         />
       </div>
     </div>
 
     <!-- Metadata Footer -->
-    <div class="px-4 py-3 bg-slate-50/70 dark:bg-slate-950/60 border-t border-slate-200/80 dark:border-slate-800 text-[11px] text-slate-400 dark:text-slate-500 space-y-1">
+    <div class="px-4 py-3 bg-slate-50/70 dark:bg-slate-950/60 border-t border-slate-200/80 dark:border-slate-800 text-sm font-medium text-slate-900 dark:text-slate-200 space-y-2">
       <div class="flex items-center justify-between">
         <span class="flex items-center gap-1">
-          <Clock class="w-3 h-3" /> Tạo lúc:
+          <Clock class="w-3.5 h-3.5" /> Tạo lúc:
         </span>
         <span>{{ formatDateTime(currentTask.created_at) }}</span>
       </div>
       <div class="flex items-center justify-between">
         <span class="flex items-center gap-1">
-          <Clock class="w-3 h-3" /> Cập nhật lúc:
+          <Clock class="w-3.5 h-3.5" /> Cập nhật lúc:
         </span>
         <span>{{ formatDateTime(currentTask.updated_at) }}</span>
       </div>
       <div class="flex items-center justify-between pt-1 border-t border-slate-200/40 dark:border-slate-800/60">
         <span class="flex items-center gap-1">
-          <Database class="w-3 h-3 text-blue-500" /> Trạng thái sync:
+          <Database class="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" /> Trạng thái sync:
         </span>
         <span
-          class="font-medium"
-          :class="currentTask.sync_status === 'pending' ? 'text-amber-500' : 'text-emerald-500'"
+          class="font-semibold"
+          :class="currentTask.sync_status === 'pending' ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400'"
         >
           {{ currentTask.sync_status === 'pending' ? 'Chờ đồng bộ' : 'Đã đồng bộ' }}
         </span>

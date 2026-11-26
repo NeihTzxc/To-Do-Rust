@@ -38,6 +38,8 @@
 - **Bảo mật tuyệt đối với Supabase Auth & RLS:** Xác thực bằng GoTrue API, dữ liệu người dùng được cô lập triệt để bằng PostgreSQL Row Level Security (`auth.uid() = user_id`).
 - **Nhúng cấu hình lúc biên dịch (Compile-time embedding):** Tự động nhúng `SUPABASE_URL` và `SUPABASE_ANON_KEY` qua `build.rs` và `option_env!`, cho phép bản cài đặt `.deb` / `.AppImage` hoạt động ở mọi thư mục hệ thống mà không phụ thuộc file `.env`.
 
+Kế hoạch bổ sung đăng nhập Google và Apple: [docs/google-apple-login.md](docs/google-apple-login.md).
+
 ---
 
 ## 🏗️ Cấu trúc Thư mục Dự án
@@ -161,8 +163,8 @@ make run-appimage
 ```
 
 *Các gói cài đặt sau khi đóng gói sẽ nằm tại:*
-- `.deb`: `src-tauri/target/release/bundle/deb/TickTask_0.1.0_amd64.deb`
-- `.AppImage`: `src-tauri/target/release/bundle/appimage/TickTask_0.1.0_amd64.AppImage`
+- `.deb`: `src-tauri/target/release/bundle/deb/TickTask_0.2.0_amd64.deb`
+- `.AppImage`: `src-tauri/target/release/bundle/appimage/TickTask_0.2.0_amd64.AppImage`
 
 ### Đóng gói cho macOS (MacBook chip Apple Silicon M-series & Intel):
 > **Lưu ý:** Do yêu cầu về Apple SDK, Xcode Command Line Tools và macOS GUI framework, việc đóng gói ứng dụng macOS (`.dmg` và `.app`) cần được thực hiện trực tiếp trên máy Mac (hoặc thông qua GitHub Actions runner `macos-latest`):
@@ -182,7 +184,7 @@ make build-mac-universal
 ```
 
 *File sau khi đóng gói trên macOS sẽ nằm tại:*
-- File cài đặt kéo-thả `.dmg`: `src-tauri/target/release/bundle/dmg/TickTask_0.1.0_*.dmg`
+- File cài đặt kéo-thả `.dmg`: `src-tauri/target/release/bundle/dmg/TickTask_0.2.0_*.dmg`
 - Ứng dụng độc lập `.app`: `src-tauri/target/release/bundle/macos/TickTask.app`
 
 ---
@@ -234,8 +236,8 @@ Dự án cung cấp `Makefile` với đầy đủ các lệnh tiện ích tự �
 ## 🔒 Bản quyền & Giấy phép
 Dự án được phân phối dưới giấy phép mã nguồn mở MIT License. Tự do sử dụng, chỉnh sửa và phát triển.
 *Các gói cài đặt sau khi đóng gói sẽ nằm tại:*
-- `.deb`: `src-tauri/target/release/bundle/deb/TickTask_0.1.0_amd64.deb`
-- `.AppImage`: `src-tauri/target/release/bundle/appimage/TickTask_0.1.0_amd64.AppImage`
+- `.deb`: `src-tauri/target/release/bundle/deb/TickTask_0.2.0_amd64.deb`
+- `.AppImage`: `src-tauri/target/release/bundle/appimage/TickTask_0.2.0_amd64.AppImage`
 
 ### Đóng gói cho macOS (MacBook chip Apple Silicon M-series & Intel):
 > **Lưu ý:** Do yêu cầu về Apple SDK, Xcode Command Line Tools và macOS GUI framework, việc đóng gói ứng dụng macOS (`.dmg` và `.app`) cần được thực hiện trực tiếp trên máy Mac (hoặc thông qua GitHub Actions runner `macos-latest`):
@@ -255,7 +257,7 @@ make build-mac-universal
 ```
 
 *File sau khi đóng gói trên macOS sẽ nằm tại:*
-- File cài đặt kéo-thả `.dmg`: `src-tauri/target/release/bundle/dmg/TickTask_0.1.0_*.dmg`
+- File cài đặt kéo-thả `.dmg`: `src-tauri/target/release/bundle/dmg/TickTask_0.2.0_*.dmg`
 - Ứng dụng độc lập `.app`: `src-tauri/target/release/bundle/macos/TickTask.app`
 
 ---

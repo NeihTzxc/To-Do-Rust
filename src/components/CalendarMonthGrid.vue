@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { useTaskStore } from '@/stores/taskStore';
 import type { Task, Priority } from '@/types/task';
+import { calendarDay, localDateKey } from '@/utils/calendarTask';
 import { Check, Plus } from 'lucide-vue-next';
 
 const emit = defineEmits<{
@@ -10,7 +11,7 @@ const emit = defineEmits<{
 
 const store = useTaskStore();
 
-const todayStr = new Date().toISOString().split('T')[0];
+const todayStr = localDateKey(new Date());
 
 interface MonthDayCell {
   date: Date;
@@ -38,7 +39,7 @@ const monthCells = computed(() => {
   const prevMonthLastDay = new Date(year, month, 0).getDate();
   for (let i = prevMonthPadding - 1; i >= 0; i--) {
     const d = new Date(year, month - 1, prevMonthLastDay - i);
-    const dateStr = d.toISOString().split('T')[0];
+    const dateStr = localDateKey(d);
     cells.push({
       date: d,
       dateStr,
@@ -51,7 +52,7 @@ const monthCells = computed(() => {
   // Days of current month
   for (let d = 1; d <= lastDay.getDate(); d++) {
     const date = new Date(year, month, d);
-    const dateStr = date.toISOString().split('T')[0];
+    const dateStr = localDateKey(date);
     cells.push({
       date,
       dateStr,
@@ -65,7 +66,7 @@ const monthCells = computed(() => {
   const remaining = (7 - (cells.length % 7)) % 7;
   for (let i = 1; i <= remaining; i++) {
     const date = new Date(year, month + 1, i);
-    const dateStr = date.toISOString().split('T')[0];
+    const dateStr = localDateKey(date);
     cells.push({
       date,
       dateStr,
@@ -79,20 +80,8 @@ const monthCells = computed(() => {
 });
 
 function getTasksForCell(date: Date): Task[] {
-  const dayStart = new Date(date);
-  dayStart.setHours(0, 0, 0, 0);
-  const startMs = dayStart.getTime();
-
-  const dayEnd = new Date(date);
-  dayEnd.setHours(23, 59, 59, 999);
-  const endMs = dayEnd.getTime();
-
-  return store.tasks.filter((t) => {
-    // Match either start_time or due_date
-    if (t.start_time && t.start_time >= startMs && t.start_time <= endMs) return true;
-    if (t.due_date && t.due_date >= startMs && t.due_date <= endMs) return true;
-    return false;
-  });
+  const day = localDateKey(date);
+  return store.tasks.filter((task) => calendarDay(task) === day);
 }
 
 function getPriorityColorClasses(p: Priority): string {

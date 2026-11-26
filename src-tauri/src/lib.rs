@@ -5,7 +5,9 @@ pub mod sync;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use tauri::{
+    image::Image,
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager,
@@ -13,6 +15,134 @@ use tauri::{
 
 use crate::storage::{SqliteTaskRepo, TaskRepository};
 use crate::sync::{SupabaseAuthClient, SyncEngine};
+
+const TRAY_ICON_ID: &str = "main-tray";
+
+fn today_task_count(tasks: &[crate::domain::task::Task]) -> usize {
+    let now = chrono::Local::now();
+    let start = now
+        .date_naive()
+        .and_hms_opt(0, 0, 0)
+        .expect("valid start of day")
+        .and_local_timezone(now.timezone())
+        .single()
+        .expect("valid local start of day")
+        .timestamp_millis();
+    let end = start + 24 * 60 * 60 * 1000 - 1;
+
+    tasks
+        .iter()
+        .filter(|task| {
+            task.status != crate::domain::task::TaskStatus::Done
+                && task.due_date.is_some_and(|due| due >= start && due <= end)
+        })
+        .count()
+}
+
+fn draw_badge(icon: &mut image::RgbaImage, count: usize) {
+    if count == 0 {
+        return;
+    }
+
+    let center_x = icon.width() as i32 - 9;
+    let center_y = icon.height() as i32 - 9;
+    let radius = 8;
+    let badge = image::Rgba([220, 38, 38, 255]);
+
+    for y in (center_y - radius)..=(center_y + radius) {
+        for x in (center_x - radius)..=(center_x + radius) {
+            if (x - center_x).pow(2) + (y - center_y).pow(2) <= radius.pow(2)
+                && x >= 0
+                && y >= 0
+                && x < icon.width() as i32
+                && y < icon.height() as i32
+            {
+                icon.put_pixel(x as u32, y as u32, badge);
+            }
+        }
+    }
+
+    // Tiny 3x5 bitmap font so the badge does not need a bundled font file.
+    let label = if count > 99 { "99+".to_string() } else { count.to_string() };
+    let patterns: std::collections::HashMap<char, [u8; 5]> = [
+        ('0', [0b111, 0b101, 0b101, 0b101, 0b111]),
+        ('1', [0b010, 0b110, 0b010, 0b010, 0b111]),
+        ('2', [0b110, 0b001, 0b010, 0b100, 0b111]),
+        ('3', [0b110, 0b001, 0b010, 0b001, 0b110]),
+        ('4', [0b101, 0b101, 0b111, 0b001, 0b001]),
+        ('5', [0b111, 0b100, 0b110, 0b001, 0b110]),
+        ('6', [0b011, 0b100, 0b111, 0b101, 0b111]),
+        ('7', [0b111, 0b001, 0b010, 0b010, 0b010]),
+        ('8', [0b111, 0b101, 0b111, 0b101, 0b111]),
+        ('9', [0b111, 0b101, 0b111, 0b001, 0b110]),
+        ('+', [0b000, 0b010, 0b111, 0b010, 0b000]),
+    ]
+    .into_iter()
+    .collect();
+
+    let scale = 1i32;
+    let char_width = 4i32;
+    let text_width = label.chars().count() as i32 * char_width - 1;
+    let start_x = center_x - text_width / 2;
+    let start_y = center_y - 2;
+    for (char_index, character) in label.chars().enumerate() {
+        if let Some(pattern) = patterns.get(&character) {
+            let offset_x = start_x + char_index as i32 * char_width;
+            for (row, bits) in pattern.iter().enumerate() {
+                for col in 0..3 {
+                    if bits & (1 << (2 - col)) != 0 {
+                        let x = offset_x + col * scale;
+                        let y = start_y + row as i32 * scale;
+                        if x >= 0 && y >= 0 && x < icon.width() as i32 && y < icon.height() as i32 {
+                            icon.put_pixel(x as u32, y as u32, image::Rgba([255, 255, 255, 255]));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn tray_icon(count: usize) -> tauri::Result<Image<'static>> {
+    let source = include_bytes!("../icons/32x32.png");
+    let decoded = image::load_from_memory(source)
+        .map_err(|error| tauri::Error::AssetNotFound(error.to_string()))?
+        .resize_exact(32, 32, image::imageops::FilterType::Lanczos3)
+        .into_rgba8();
+    let mut icon = decoded;
+
+    for pixel in icon.pixels_mut() {
+        let luminance = (0.299 * f32::from(pixel[0])
+            + 0.587 * f32::from(pixel[1])
+            + 0.114 * f32::from(pixel[2])) as u8;
+        pixel[0] = luminance;
+        pixel[1] = luminance;
+        pixel[2] = luminance;
+    }
+
+    draw_badge(&mut icon, count);
+    Ok(Image::new_owned(icon.into_raw(), 32, 32))
+}
+
+fn start_tray_badge_worker(app: tauri::AppHandle, repo: Arc<dyn TaskRepository>) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            if let Ok(tasks) = repo.list_active_tasks().await {
+                if let Some(tray) = app.tray_by_id(TRAY_ICON_ID) {
+                    let count = today_task_count(&tasks);
+                    if let Ok(icon) = tray_icon(count) {
+                        let _ = tray.set_icon(Some(icon));
+                    }
+                    let _ = tray.set_tooltip(Some(format!(
+                        "TickTask - {} task cần làm hôm nay",
+                        count
+                    )));
+                }
+            }
+            tokio::time::sleep(Duration::from_secs(15)).await;
+        }
+    });
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -36,6 +166,7 @@ pub fn run() {
     let sync_engine_setup = sync_engine.clone();
     let close_to_tray = Arc::new(AtomicBool::new(true));
     let close_to_tray_window = close_to_tray.clone();
+    let tray_repo = repo.clone();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -62,8 +193,9 @@ pub fn run() {
             let quit_i = MenuItem::with_id(app, "quit", "Thoát hoàn toàn", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_i, &sync_i, &sep, &quit_i])?;
 
-            let _tray = TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
+            let _tray = TrayIconBuilder::with_id(TRAY_ICON_ID)
+                .icon(tray_icon(0)?)
+                .icon_as_template(true)
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .tooltip("TickTask - Task Manager")
@@ -106,6 +238,8 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+
+            start_tray_badge_worker(app.handle().clone(), tray_repo.clone());
 
             Ok(())
         })
