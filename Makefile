@@ -151,6 +151,49 @@ run-appimage: ## Launch the generated .AppImage package
 		echo -e "$(YELLOW)--> No .AppImage file found. Run 'make build-appimage' first.$(RESET)"; \
 	fi
 
+##@ Versioning & Release
+
+BUMP ?= 1
+
+.PHONY: version
+version: ## Show current version across package.json, tauri.conf.json, and Cargo.toml
+	@node -e 'const fs=require("fs");console.log("package.json:         ",JSON.parse(fs.readFileSync("package.json","utf8")).version);console.log("src-tauri/tauri.conf: ",JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json","utf8")).version);console.log("src-tauri/Cargo.toml: ",fs.readFileSync("src-tauri/Cargo.toml","utf8").match(/^version\s*=\s*"([^"]+)"/m)?.[1]);'
+
+.PHONY: bump bump-patch
+bump: bump-patch ## Alias for bump-patch (increment patch version x.y.Z)
+
+bump-patch: ## Increment patch version (e.g. 0.1.2 -> 0.1.3)
+	@$(MAKE) --no-print-directory _update-version PART=patch
+
+.PHONY: bump-minor
+bump-minor: ## Increment minor version and reset patch (e.g. 0.0.10 -> 0.1.0)
+	@$(MAKE) --no-print-directory _update-version PART=minor
+
+.PHONY: bump-major
+bump-major: ## Increment major version and reset minor/patch (e.g. 0.1.2 -> 1.0.0)
+	@$(MAKE) --no-print-directory _update-version PART=major
+
+.PHONY: set-version
+set-version: ## Set explicit version across all files (usage: make set-version V=0.1.0)
+	@if [ -z "$(V)" ]; then \
+		echo -e "$(YELLOW)Usage: make set-version V=x.y.z$(RESET)"; \
+		exit 1; \
+	fi
+	@$(MAKE) --no-print-directory _update-version NEW_VERSION=$(V)
+
+.PHONY: _update-version
+_update-version:
+	@node -e 'const fs=require("fs"),part="$(PART)",explicit="$(NEW_VERSION)",pkgP="package.json",tauriP="src-tauri/tauri.conf.json",cargoP="src-tauri/Cargo.toml";const pkg=JSON.parse(fs.readFileSync(pkgP,"utf8")),tauri=JSON.parse(fs.readFileSync(tauriP,"utf8")),cur=pkg.version;let next=explicit;if(!next){const m=cur.match(/^(\d+)\.(\d+)\.(\d+)$$/);if(!m){console.error("Invalid semver:",cur);process.exit(1);}let[maj,min,pat]=m.slice(1).map(Number);if(part==="major"){maj+=1;min=0;pat=0;}else if(part==="minor"){min+=1;pat=0;}else{pat+=1;}next=`$${maj}.$${min}.$${pat}`;}else if(!/^\d+\.\d+\.\d+$$/.test(next)){console.error("Invalid semver format:",next);process.exit(1);}pkg.version=next;tauri.version=next;fs.writeFileSync(pkgP,JSON.stringify(pkg,null,2)+"\n");fs.writeFileSync(tauriP,JSON.stringify(tauri,null,2)+"\n");fs.writeFileSync(cargoP,fs.readFileSync(cargoP,"utf8").replace(/^version\s*=\s*"[^"]+"/m,`version = "$${next}"`));console.log(`Version updated: $${cur} -> $${next}`);'
+
+.PHONY: release
+release: ## Bump patch (unless BUMP=0) and build production bundles (e.g. make release or make release BUMP=0)
+	@if [ "$(BUMP)" != "0" ]; then \
+		$(MAKE) --no-print-directory bump-patch; \
+	else \
+		echo -e "$(YELLOW)--> Skipping version bump (BUMP=0)$(RESET)"; \
+	fi
+	@$(MAKE) --no-print-directory build
+
 ##@ Quality & Testing
 
 .PHONY: check
