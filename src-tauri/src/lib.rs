@@ -47,7 +47,7 @@ fn draw_badge(icon: &mut image::RgbaImage, count: usize) {
     let center_x = icon.width() as i32 - 9;
     let center_y = icon.height() as i32 - 9;
     let radius = 8;
-    let badge = image::Rgba([220, 38, 38, 255]);
+    let badge = image::Rgba([255, 255, 255, 255]);
 
     for y in (center_y - radius)..=(center_y + radius) {
         for x in (center_x - radius)..=(center_x + radius) {
@@ -94,7 +94,8 @@ fn draw_badge(icon: &mut image::RgbaImage, count: usize) {
                         let x = offset_x + col * scale;
                         let y = start_y + row as i32 * scale;
                         if x >= 0 && y >= 0 && x < icon.width() as i32 && y < icon.height() as i32 {
-                            icon.put_pixel(x as u32, y as u32, image::Rgba([255, 255, 255, 255]));
+                            // Transparent digits stay legible when macOS recolors the icon.
+                            icon.put_pixel(x as u32, y as u32, image::Rgba([0, 0, 0, 0]));
                         }
                     }
                 }
@@ -104,24 +105,52 @@ fn draw_badge(icon: &mut image::RgbaImage, count: usize) {
 }
 
 fn tray_icon(count: usize) -> tauri::Result<Image<'static>> {
-    let source = include_bytes!("../icons/32x32.png");
-    let decoded = image::load_from_memory(source)
-        .map_err(|error| tauri::Error::AssetNotFound(error.to_string()))?
-        .resize_exact(32, 32, image::imageops::FilterType::Lanczos3)
-        .into_rgba8();
-    let mut icon = decoded;
+    let mut icon = image::RgbaImage::new(32, 32);
+    let white = image::Rgba([255, 255, 255, 255]);
 
-    for pixel in icon.pixels_mut() {
-        let luminance = (0.299 * f32::from(pixel[0])
-            + 0.587 * f32::from(pixel[1])
-            + 0.114 * f32::from(pixel[2])) as u8;
-        pixel[0] = luminance;
-        pixel[1] = luminance;
-        pixel[2] = luminance;
+    // Draw a monochrome check with a transparent background at tray size.
+    for y in 1..31 {
+        for x in 1..31 {
+            let outer = inside_rounded_rect(x, y, 1, 30, 7);
+            let inner = inside_rounded_rect(x, y, 5, 26, 5);
+            if outer && !inner {
+                icon.put_pixel(x, y, white);
+            }
+        }
     }
+
+    draw_white_line(&mut icon, (8.0, 16.0), (13.0, 21.0), 1.9);
+    draw_white_line(&mut icon, (13.0, 21.0), (24.0, 10.0), 1.9);
 
     draw_badge(&mut icon, count);
     Ok(Image::new_owned(icon.into_raw(), 32, 32))
+}
+
+fn inside_rounded_rect(x: u32, y: u32, min: u32, max: u32, radius: u32) -> bool {
+    if x < min || x > max || y < min || y > max {
+        return false;
+    }
+    let nearest_x = x.clamp(min + radius, max - radius);
+    let nearest_y = y.clamp(min + radius, max - radius);
+    (x as i32 - nearest_x as i32).pow(2) + (y as i32 - nearest_y as i32).pow(2)
+        <= (radius as i32).pow(2)
+}
+
+fn draw_white_line(icon: &mut image::RgbaImage, start: (f32, f32), end: (f32, f32), radius: f32) {
+    let dx = end.0 - start.0;
+    let dy = end.1 - start.1;
+    let length_squared = dx * dx + dy * dy;
+    for y in 0..icon.height() {
+        for x in 0..icon.width() {
+            let px = x as f32 - start.0;
+            let py = y as f32 - start.1;
+            let t = ((px * dx + py * dy) / length_squared).clamp(0.0, 1.0);
+            let distance_squared = (px - t * dx).powi(2) + (py - t * dy).powi(2);
+            if distance_squared <= radius * radius {
+                icon.put_pixel(x, y, image::Rgba([255, 255, 255, 255]));
+            }
+        }
+    }
 }
 
 fn start_tray_badge_worker(app: tauri::AppHandle, repo: Arc<dyn TaskRepository>) {
