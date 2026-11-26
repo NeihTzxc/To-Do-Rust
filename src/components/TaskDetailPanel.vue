@@ -82,6 +82,13 @@ function onDateChange(e: Event) {
     const parts = val.split('-');
     const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]), 23, 59, 59);
     dueDate.value = d.getTime();
+    if (startTime.value != null && endTime.value != null) {
+      const oldStart = new Date(startTime.value);
+      const duration = endTime.value - startTime.value;
+      const newStart = new Date(d.getFullYear(), d.getMonth(), d.getDate(), oldStart.getHours(), oldStart.getMinutes(), oldStart.getSeconds(), oldStart.getMilliseconds());
+      startTime.value = newStart.getTime();
+      endTime.value = startTime.value + duration;
+    }
   } else {
     dueDate.value = null;
   }
@@ -115,7 +122,7 @@ function onStartTimeChange(e: Event) {
     return;
   }
   const [h, m] = val.split(':').map(Number);
-  const base = startTime.value ? new Date(startTime.value) : (dueDate.value ? new Date(dueDate.value) : new Date());
+  const base = dueDate.value ? new Date(dueDate.value) : (startTime.value ? new Date(startTime.value) : new Date());
   base.setHours(h, m, 0, 0);
   startTime.value = base.getTime();
 
@@ -137,7 +144,7 @@ function onEndTimeChange(e: Event) {
     return;
   }
   const [h, m] = val.split(':').map(Number);
-  const base = endTime.value ? new Date(endTime.value) : (startTime.value ? new Date(startTime.value) : new Date());
+  const base = startTime.value ? new Date(startTime.value) : (endTime.value ? new Date(endTime.value) : new Date());
   base.setHours(h, m, 0, 0);
   endTime.value = base.getTime();
 }
@@ -350,26 +357,26 @@ function formatDateTime(timestamp: number): string {
     </div>
 
     <!-- Metadata Footer -->
-    <div class="px-4 py-3 bg-slate-50/70 dark:bg-slate-950/60 border-t border-slate-200/80 dark:border-slate-800 text-xs text-slate-400 dark:text-slate-500 space-y-1.5">
+    <div class="px-4 py-3 bg-slate-50/70 dark:bg-slate-950/60 border-t border-slate-200/80 dark:border-slate-800 text-sm font-medium text-slate-900 dark:text-slate-200 space-y-2">
       <div class="flex items-center justify-between">
         <span class="flex items-center gap-1">
-          <Clock class="w-3 h-3" /> Tạo lúc:
+          <Clock class="w-3.5 h-3.5" /> Tạo lúc:
         </span>
         <span>{{ formatDateTime(currentTask.created_at) }}</span>
       </div>
       <div class="flex items-center justify-between">
         <span class="flex items-center gap-1">
-          <Clock class="w-3 h-3" /> Cập nhật lúc:
+          <Clock class="w-3.5 h-3.5" /> Cập nhật lúc:
         </span>
         <span>{{ formatDateTime(currentTask.updated_at) }}</span>
       </div>
       <div class="flex items-center justify-between pt-1 border-t border-slate-200/40 dark:border-slate-800/60">
         <span class="flex items-center gap-1">
-          <Database class="w-3 h-3 text-blue-500" /> Trạng thái sync:
+          <Database class="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" /> Trạng thái sync:
         </span>
         <span
-          class="font-medium"
-          :class="currentTask.sync_status === 'pending' ? 'text-amber-500' : 'text-emerald-500'"
+          class="font-semibold"
+          :class="currentTask.sync_status === 'pending' ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400'"
         >
           {{ currentTask.sync_status === 'pending' ? 'Chờ đồng bộ' : 'Đã đồng bộ' }}
         </span>

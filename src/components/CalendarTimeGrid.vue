@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useTaskStore } from '@/stores/taskStore';
 import type { Task, Priority } from '@/types/task';
+import { calendarDay, calendarInterval, localDateKey } from '@/utils/calendarTask';
 import {
   Check,
   ChevronDown,
@@ -53,11 +54,11 @@ const days = computed(() => {
   const current = new Date(store.calendarCurrentDate);
   const result: { date: Date; dateStr: string; dayName: string; dayNum: number; isToday: boolean }[] = [];
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = localDateKey(new Date());
 
   if (props.mode === 'day') {
     const d = new Date(current);
-    const dateStr = d.toISOString().split('T')[0];
+    const dateStr = localDateKey(d);
     const dayNames = ['CN', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
     result.push({
       date: d,
@@ -79,7 +80,7 @@ const days = computed(() => {
     for (let i = 0; i < 7; i++) {
       const d = new Date(monday);
       d.setDate(monday.getDate() + i);
-      const dateStr = d.toISOString().split('T')[0];
+      const dateStr = localDateKey(d);
       result.push({
         date: d,
         dateStr,
@@ -120,23 +121,31 @@ function getTasksForDay(date: Date): Task[] {
   const endMs = dayEnd.getTime();
 
   return store.scheduledTasks.filter((t) => {
-    if (!t.start_time || !t.end_time) return false;
-    // Task overlaps with this day
-    return t.start_time <= endMs && t.end_time >= startMs;
+    const interval = calendarInterval(t);
+    return interval != null && interval.start <= endMs && interval.end > startMs;
   });
 }
 
+function getAllDayTasks(date: Date): Task[] {
+  const day = localDateKey(date);
+  return store.tasks.filter((task) => task.due_date != null && calendarDay(task) === day && !calendarInterval(task));
+}
+
+const hasAllDayTasks = computed(() => days.value.some((day) => getAllDayTasks(day.date).length > 0));
+
 // Compute style (top, height) for a task block on the grid
 function getTaskStyle(task: Task, dayDate: Date) {
-  if (!task.start_time || !task.end_time) return {};
+  const interval = calendarInterval(task);
+  if (!interval) return {};
 
   const dayStart = new Date(dayDate);
   dayStart.setHours(0, 0, 0, 0);
   const dayStartMs = dayStart.getTime();
 
-  const taskStart = new Date(Math.max(task.start_time, dayStartMs));
-  const dayEndMs = dayStartMs + 24 * 3600000;
-  const taskEnd = new Date(Math.min(task.end_time, dayEndMs));
+  const taskStart = new Date(Math.max(interval.start, dayStartMs));
+  const dayEnd = new Date(dayStart);
+  dayEnd.setDate(dayEnd.getDate() + 1);
+  const taskEnd = new Date(Math.min(interval.end, dayEnd.getTime()));
 
   const startHour = store.isNightCollapsed ? 7 : 0;
   const taskStartMinutes = taskStart.getHours() * 60 + taskStart.getMinutes();
@@ -287,6 +296,23 @@ async function stopResizing() {
           >
             {{ d.dayNum }}
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tasks with a due date but no time block -->
+    <div v-if="hasAllDayTasks" class="flex flex-shrink-0 border-b border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/80">
+      <div class="w-16 flex-shrink-0 border-r border-slate-200/80 dark:border-slate-800 px-1 py-2 text-center text-[10px] text-slate-500">Cả ngày</div>
+      <div class="flex-1 grid" :style="{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }">
+        <div v-for="d in days" :key="d.dateStr" class="min-w-0 p-1 border-r last:border-r-0 border-slate-200/80 dark:border-slate-800">
+          <button
+            v-for="task in getAllDayTasks(d.date)"
+            :key="task.id"
+            type="button"
+            @click="store.selectTask(task.id)"
+            :class="['block w-full text-left truncate rounded border px-1.5 py-1 text-xs font-medium mb-1 last:mb-0', getPriorityColorClasses(task.priority), task.status === 'done' ? 'opacity-65 line-through' : '']"
+            :title="task.title"
+          >{{ task.title }}</button>
         </div>
       </div>
     </div>

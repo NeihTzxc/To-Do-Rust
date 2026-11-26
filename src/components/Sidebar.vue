@@ -74,7 +74,7 @@ const counts = computed(() => store.counts);
 
     <!-- Footer: Gọn gàng không chứa nút Dark Mode lặp lại -->
     <div class="p-3 border-t border-slate-200/60 dark:border-slate-800/80 text-[11px] text-slate-400 text-center">
-      <span>TickTask v0.1.0 • Local-first</span>
+      <span>TickTask v0.2.1 • Local-first</span>
     </div>
   </aside>
 </template>
