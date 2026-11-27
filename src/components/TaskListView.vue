@@ -111,14 +111,18 @@ function formatTaskDate(timestamp: number | null): { text: string; isOverdue: bo
           <button
             type="button"
             @click.stop="store.toggleTaskStatus(task.id)"
-            :class="[
-              'w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0',
-              getPriorityBorderColor(task.priority),
-              task.status === 'done' ? 'bg-blue-500 border-blue-500 text-white' : ''
-            ]"
+            class="group/check w-5 h-5 flex items-center justify-center flex-shrink-0 cursor-pointer"
             title="Đánh dấu hoàn thành"
           >
-            <Check v-if="task.status === 'done'" class="w-3 h-3 stroke-[3]" />
+            <span
+              :class="[
+                'w-3.5 h-3.5 rounded-full border-[1.5px] flex items-center justify-center transition-all group-hover/check:scale-110',
+                getPriorityBorderColor(task.priority),
+                task.status === 'done' ? 'bg-blue-500 border-blue-500 text-white' : ''
+              ]"
+            >
+              <Check v-if="task.status === 'done'" class="w-2.5 h-2.5 stroke-[2.5]" />
+            </span>
           </button>
 
           <!-- Task Title & Snippet -->
@@ -174,14 +178,18 @@ function formatTaskDate(timestamp: number | null): { text: string; isOverdue: bo
           <button
             type="button"
             @click.stop="store.toggleTaskStatus(task.id)"
-            :class="[
-              'w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0',
-              getPriorityBorderColor(task.priority),
-              task.status === 'done' ? 'bg-blue-500 border-blue-500 text-white' : ''
-            ]"
+            class="group/check w-5 h-5 flex items-center justify-center flex-shrink-0 cursor-pointer"
             title="Đánh dấu hoàn thành"
           >
-            <Check v-if="task.status === 'done'" class="w-3 h-3 stroke-[3]" />
+            <span
+              :class="[
+                'w-3.5 h-3.5 rounded-full border-[1.5px] flex items-center justify-center transition-all group-hover/check:scale-110',
+                getPriorityBorderColor(task.priority),
+                task.status === 'done' ? 'bg-blue-500 border-blue-500 text-white' : ''
+              ]"
+            >
+              <Check v-if="task.status === 'done'" class="w-2.5 h-2.5 stroke-[2.5]" />
+            </span>
           </button>
 
           <!-- Task Title & Snippet -->
@@ -245,10 +253,12 @@ function formatTaskDate(timestamp: number | null): { text: string; isOverdue: bo
           <button
             type="button"
             @click.stop="store.toggleTaskStatus(task.id)"
-            class="w-5 h-5 rounded-full border-2 border-emerald-500 bg-emerald-500 text-white flex items-center justify-center transition-all flex-shrink-0"
+            class="group/check w-5 h-5 flex items-center justify-center flex-shrink-0 cursor-pointer"
             title="Đánh dấu chưa hoàn thành"
           >
-            <Check class="w-3 h-3 stroke-[3]" />
+            <span class="w-3.5 h-3.5 rounded-full border-[1.5px] border-emerald-500 bg-emerald-500 text-white flex items-center justify-center transition-all group-hover/check:scale-110">
+              <Check class="w-2.5 h-2.5 stroke-[2.5]" />
+            </span>
           </button>
 
           <!-- Task Title -->

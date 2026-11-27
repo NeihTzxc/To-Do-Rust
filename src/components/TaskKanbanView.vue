@@ -176,15 +176,19 @@ function formatTaskDate(timestamp: number | null): { text: string; isOverdue: bo
             <button
               type="button"
               @click.stop="store.toggleTaskStatus(task.id)"
-              :class="[
-                'w-4 h-4 rounded-full border-2 flex items-center justify-center mt-0.5 flex-shrink-0 transition-colors',
-                task.status === 'done'
-                  ? 'bg-emerald-500 border-emerald-500 text-white'
-                  : 'border-slate-400 hover:border-blue-500'
-              ]"
+              class="group/check w-4 h-4 flex items-center justify-center mt-0.5 flex-shrink-0 cursor-pointer"
               title="Đổi trạng thái"
             >
-              <Check v-if="task.status === 'done'" class="w-2.5 h-2.5 stroke-[3]" />
+              <span
+                :class="[
+                  'w-3 h-3 rounded-full border-[1.5px] flex items-center justify-center transition-all group-hover/check:scale-110',
+                  task.status === 'done'
+                    ? 'bg-emerald-500 border-emerald-500 text-white'
+                    : 'border-slate-400 group-hover/check:border-blue-500'
+                ]"
+              >
+                <Check v-if="task.status === 'done'" class="w-2 h-2 stroke-[3]" />
+              </span>
             </button>
 
             <!-- Card Content -->
