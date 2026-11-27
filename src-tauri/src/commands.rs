@@ -1,9 +1,11 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::State;
+use tauri_plugin_notification::NotificationExt;
 
 use crate::domain::auth::{SyncStatusState, UserInfo};
 use crate::domain::task::{CreateTaskInput, Priority, Task, TaskStatus, UpdateTaskInput};
+use crate::reminder::NotificationsEnabled;
 use crate::storage::TaskRepository;
 use crate::sync::{SupabaseAuthClient, SyncEngine};
 
@@ -209,4 +211,19 @@ pub fn set_close_to_tray(state: State<'_, Arc<AtomicBool>>, enabled: bool) {
 #[tauri::command]
 pub fn get_close_to_tray(state: State<'_, Arc<AtomicBool>>) -> bool {
     state.load(Ordering::SeqCst)
+}
+
+#[tauri::command]
+pub fn set_notifications_enabled(state: State<'_, NotificationsEnabled>, enabled: bool) {
+    state.0.store(enabled, Ordering::SeqCst);
+}
+
+#[tauri::command]
+pub fn test_notification(app: tauri::AppHandle) -> Result<(), String> {
+    app.notification()
+        .builder()
+        .title("🔔 Thông báo thử nghiệm TickTask")
+        .body("Thông báo nhắc việc cục bộ đang hoạt động bình thường!")
+        .show()
+        .map_err(|e| e.to_string())
 }

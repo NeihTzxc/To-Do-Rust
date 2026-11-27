@@ -219,3 +219,35 @@ async fn test_all_day_and_recurring_task_spawning() {
     assert_eq!(next_occ.start_time, Some(base_start + 86_400_000));
     assert_eq!(next_occ.end_time, Some(base_end + 86_400_000));
 }
+
+#[test]
+fn test_local_reminder_trigger_logic() {
+    use std::collections::HashMap;
+    use rust_task_mgr_lib::domain::task::Task;
+    use rust_task_mgr_lib::reminder::should_notify_task;
+
+    let mut task = Task::new_v7("Đặt bánh kem".to_string(), None, Priority::Medium, None);
+    let scheduled_at = 1795420800000_i64; // e.g. 15:00:00
+    task.start_time = Some(scheduled_at);
+    task.end_time = Some(scheduled_at + 3600_000);
+    task.due_date = Some(scheduled_at);
+
+    let mut notified: HashMap<String, i64> = HashMap::new();
+
+    // Trước giờ hẹn 1 phút -> chưa thông báo
+    assert_eq!(should_notify_task(&task, scheduled_at - 60_000, &notified), None);
+
+    // Đúng giờ hẹn (hoặc trễ 5 giây) -> gửi thông báo
+    assert_eq!(should_notify_task(&task, scheduled_at + 5_000, &notified), Some(scheduled_at));
+
+    // Đã đánh dấu đã thông báo mốc scheduled_at -> không gửi lặp lại
+    notified.insert(task.id.clone(), scheduled_at);
+    assert_eq!(should_notify_task(&task, scheduled_at + 15_000, &notified), None);
+
+    // Nếu dời lịch sang mốc mới -> thông báo lại ở mốc mới
+    let new_scheduled = scheduled_at + 3600_000;
+    task.start_time = Some(new_scheduled);
+    task.end_time = Some(new_scheduled + 3600_000);
+    task.due_date = Some(new_scheduled);
+    assert_eq!(should_notify_task(&task, new_scheduled + 2_000, &notified), Some(new_scheduled));
+}

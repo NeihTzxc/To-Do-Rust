@@ -17,6 +17,7 @@ import {
   EyeOff,
   Minimize2,
   Power,
+  Bell,
 } from 'lucide-vue-next';
 
 const store = useTaskStore();
@@ -298,8 +299,39 @@ function handleClose() {
             </div>
           </div>
 
-          <!-- System Tray & Background Settings (Dùng chung cho cả Guest & User) -->
+          <!-- System Tray & Notification Settings (Dùng chung cho cả Guest & User) -->
           <div class="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                  <Bell class="w-3.5 h-3.5 text-amber-500" />
+                  <span>Thông báo nhắc việc khi tới giờ</span>
+                </div>
+                <p class="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
+                  Gửi thông báo Desktop khi đến giờ bắt đầu của task (khi mở app)
+                </p>
+              </div>
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  @click="store.sendTestNotification"
+                  class="px-2 py-0.5 text-[11px] font-medium rounded border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  title="Gửi thử thông báo Desktop"
+                >
+                  Thử
+                </button>
+                <label class="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    :checked="store.notificationsEnabled"
+                    @change="(e: any) => store.setNotificationsEnabled(e.target.checked)"
+                    class="sr-only peer"
+                  />
+                  <div class="w-9 h-5 bg-slate-300 peer-focus:outline-hidden rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+            </div>
+
             <div class="flex items-center justify-between">
               <div>
                 <div class="text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">

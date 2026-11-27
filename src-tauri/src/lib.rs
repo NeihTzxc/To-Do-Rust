@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod domain;
+pub mod reminder;
 pub mod storage;
 pub mod sync;
 
@@ -13,6 +14,7 @@ use tauri::{
     Manager,
 };
 
+use crate::reminder::NotificationsEnabled;
 use crate::storage::{SqliteTaskRepo, TaskRepository};
 use crate::sync::{SupabaseAuthClient, SyncEngine};
 
@@ -196,8 +198,12 @@ pub fn run() {
     let close_to_tray = Arc::new(AtomicBool::new(true));
     let close_to_tray_window = close_to_tray.clone();
     let tray_repo = repo.clone();
+    let reminder_repo = repo.clone();
+    let notifications_enabled = NotificationsEnabled(Arc::new(AtomicBool::new(true)));
+    let notifications_flag = notifications_enabled.0.clone();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
@@ -214,6 +220,9 @@ pub fn run() {
 
             // Bắt đầu background worker cho sync hai chiều bên trong runtime của Tauri
             sync_engine_setup.start_background_worker(notify_rx);
+
+            // Bắt đầu luồng kiểm tra nhắc nhở công việc tới giờ (Local Desktop Notification)
+            reminder::start_reminder_worker(app.handle().clone(), reminder_repo, notifications_flag);
 
             // Xây dựng System Tray menu
             let show_i = MenuItem::with_id(app, "show", "Mở TickTask", true, None::<&str>)?;
@@ -286,6 +295,7 @@ pub fn run() {
         .manage(auth_client)
         .manage(sync_engine)
         .manage(close_to_tray)
+        .manage(notifications_enabled)
         .invoke_handler(tauri::generate_handler![
             commands::get_tasks,
             commands::create_task,
@@ -303,7 +313,9 @@ pub fn run() {
             commands::get_sync_status,
             commands::exit_app,
             commands::set_close_to_tray,
-            commands::get_close_to_tray
+            commands::get_close_to_tray,
+            commands::set_notifications_enabled,
+            commands::test_notification
         ])
         .run(tauri::generate_context!())
         .expect("Lỗi khi chạy ứng dụng Tauri");

@@ -141,6 +141,7 @@ export const useTaskStore = defineStore('tasks', {
     authError: null as string | null,
     syncTriggerLoading: false,
     closeToTray: true,
+    notificationsEnabled: true,
     isTauriEnv: typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window,
   }),
 
@@ -259,8 +260,11 @@ export const useTaskStore = defineStore('tasks', {
 
       const savedTray = localStorage.getItem('close_to_tray');
       this.closeToTray = savedTray === null ? true : savedTray === 'true';
+      const savedNotify = localStorage.getItem('notifications_enabled');
+      this.notificationsEnabled = savedNotify === null ? true : savedNotify === 'true';
       if (this.isTauriEnv) {
         invoke('set_close_to_tray', { enabled: this.closeToTray }).catch(() => {});
+        invoke('set_notifications_enabled', { enabled: this.notificationsEnabled }).catch(() => {});
       }
 
       await this.initAuthAndSync();
@@ -760,6 +764,28 @@ export const useTaskStore = defineStore('tasks', {
           await invoke('set_close_to_tray', { enabled: val });
         } catch (e) {
           console.error('set_close_to_tray error:', e);
+        }
+      }
+    },
+
+    async setNotificationsEnabled(val: boolean): Promise<void> {
+      this.notificationsEnabled = val;
+      localStorage.setItem('notifications_enabled', String(val));
+      if (this.isTauriEnv) {
+        try {
+          await invoke('set_notifications_enabled', { enabled: val });
+        } catch (e) {
+          console.error('set_notifications_enabled error:', e);
+        }
+      }
+    },
+
+    async sendTestNotification(): Promise<void> {
+      if (this.isTauriEnv) {
+        try {
+          await invoke('test_notification');
+        } catch (e) {
+          console.error('test_notification error:', e);
         }
       }
     },
