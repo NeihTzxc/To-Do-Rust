@@ -2,6 +2,8 @@
 import { ref, watch, computed } from 'vue';
 import { useTaskStore } from '@/stores/taskStore';
 import type { Priority, TaskStatus } from '@/types/task';
+import { localDateKey, parseDateKey, startOfDayMs, endOfDayMs } from '@/utils/calendarTask';
+import RecurrenceSelector from '@/components/RecurrenceSelector.vue';
 import {
   X,
   Trash2,
@@ -18,6 +20,8 @@ const store = useTaskStore();
 
 const currentTask = computed(() => store.selectedTask);
 
+type ScheduleMode = 'none' | 'time_block' | 'all_day' | 'date_range';
+
 const title = ref('');
 const description = ref('');
 const status = ref<TaskStatus>('todo');
@@ -25,6 +29,9 @@ const priority = ref<Priority>(2);
 const dueDate = ref<number | null>(null);
 const startTime = ref<number | null>(null);
 const endTime = ref<number | null>(null);
+const isAllDay = ref(false);
+const recurrenceRule = ref<string | null>(null);
+const scheduleMode = ref<ScheduleMode>('none');
 const isSaving = ref(false);
 
 // Watch for selected task changes to update local reactive form state
@@ -39,10 +46,73 @@ watch(
       dueDate.value = task.due_date;
       startTime.value = task.start_time;
       endTime.value = task.end_time;
+      isAllDay.value = task.is_all_day ?? false;
+      recurrenceRule.value = task.recurrence_rule ?? null;
+
+      if (task.start_time != null && task.end_time != null) {
+        const sKey = localDateKey(new Date(task.start_time));
+        const eKey = localDateKey(new Date(task.end_time));
+        if (sKey !== eKey) {
+          scheduleMode.value = 'date_range';
+        } else if (task.is_all_day) {
+          scheduleMode.value = 'all_day';
+        } else {
+          scheduleMode.value = 'time_block';
+        }
+      } else if (task.is_all_day) {
+        scheduleMode.value = 'all_day';
+      } else {
+        scheduleMode.value = 'none';
+      }
     }
   },
   { immediate: true }
 );
+
+function setScheduleMode(mode: ScheduleMode) {
+  scheduleMode.value = mode;
+  const baseDate = dueDate.value
+    ? new Date(dueDate.value)
+    : startTime.value
+      ? new Date(startTime.value)
+      : new Date();
+
+  if (mode === 'none') {
+    isAllDay.value = false;
+    startTime.value = null;
+    endTime.value = null;
+  } else if (mode === 'time_block') {
+    isAllDay.value = false;
+    const s = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), 9, 0, 0, 0);
+    const e = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), 10, 0, 0, 0);
+    if (startTime.value && endTime.value && localDateKey(new Date(startTime.value)) === localDateKey(new Date(endTime.value))) {
+      const oldS = new Date(startTime.value);
+      const oldE = new Date(endTime.value);
+      if (!(oldS.getHours() === 0 && oldS.getMinutes() === 0 && oldE.getHours() === 23 && oldE.getMinutes() === 59)) {
+        return;
+      }
+    }
+    startTime.value = s.getTime();
+    endTime.value = e.getTime();
+    dueDate.value = endOfDayMs(baseDate);
+  } else if (mode === 'all_day') {
+    isAllDay.value = true;
+    startTime.value = startOfDayMs(baseDate);
+    endTime.value = endOfDayMs(baseDate);
+    dueDate.value = endTime.value;
+  } else if (mode === 'date_range') {
+    isAllDay.value = true;
+    const sDate = startTime.value ? new Date(startTime.value) : baseDate;
+    let eDate = endTime.value ? new Date(endTime.value) : new Date(sDate);
+    if (localDateKey(sDate) === localDateKey(eDate)) {
+      eDate = new Date(sDate);
+      eDate.setDate(eDate.getDate() + 1);
+    }
+    startTime.value = startOfDayMs(sDate);
+    endTime.value = endOfDayMs(eDate);
+    dueDate.value = endTime.value;
+  }
+}
 
 async function saveTask() {
   if (!currentTask.value) return;
@@ -58,6 +128,8 @@ async function saveTask() {
       due_date: dueDate.value,
       start_time: startTime.value,
       end_time: endTime.value,
+      is_all_day: isAllDay.value,
+      recurrence_rule: recurrenceRule.value,
     });
   } finally {
     isSaving.value = false;
@@ -149,9 +221,45 @@ function onEndTimeChange(e: Event) {
   endTime.value = base.getTime();
 }
 
-function clearSchedule() {
-  startTime.value = null;
-  endTime.value = null;
+const formattedRangeStart = computed(() => {
+  if (!startTime.value) return '';
+  return localDateKey(new Date(startTime.value));
+});
+
+const formattedRangeEnd = computed(() => {
+  if (!endTime.value) return '';
+  return localDateKey(new Date(endTime.value));
+});
+
+function onRangeStartChange(e: Event) {
+  const val = (e.target as HTMLInputElement).value;
+  if (!val) return;
+  const sDate = parseDateKey(val);
+  startTime.value = startOfDayMs(sDate);
+  if (!endTime.value || endTime.value < startTime.value) {
+    endTime.value = endOfDayMs(sDate);
+  }
+  dueDate.value = endTime.value;
+}
+
+function onRangeEndChange(e: Event) {
+  const val = (e.target as HTMLInputElement).value;
+  if (!val) return;
+  const eDate = parseDateKey(val);
+  endTime.value = endOfDayMs(eDate);
+  if (!startTime.value || startTime.value > endTime.value) {
+    startTime.value = startOfDayMs(eDate);
+  }
+  dueDate.value = endTime.value;
+}
+
+function onAllDayDateChange(e: Event) {
+  const val = (e.target as HTMLInputElement).value;
+  if (!val) return;
+  const d = parseDateKey(val);
+  startTime.value = startOfDayMs(d);
+  endTime.value = endOfDayMs(d);
+  dueDate.value = endTime.value;
 }
 
 function formatDateTime(timestamp: number): string {
@@ -305,30 +413,44 @@ function formatDateTime(timestamp: number): string {
           </div>
         </div>
 
-        <!-- Time-blocking Property (Giờ bắt đầu - Giờ kết thúc) -->
-        <div class="space-y-2 pt-1 border-t border-slate-100 dark:border-slate-800 text-sm">
+        <!-- Schedule Mode Property (Không đặt / Theo giờ / Cả ngày / Nhiều ngày) -->
+        <div class="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800 text-sm">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2 text-slate-500 dark:text-slate-400">
               <Clock class="w-4 h-4" />
-              <span>Khung giờ Lịch</span>
+              <span>Chế độ thời gian</span>
             </div>
+          </div>
+
+          <div class="grid grid-cols-4 gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg text-xs">
             <button
-              v-if="startTime || endTime"
+              v-for="m in [
+                { id: 'none', label: 'Không đặt' },
+                { id: 'time_block', label: 'Theo giờ' },
+                { id: 'all_day', label: 'Cả ngày' },
+                { id: 'date_range', label: 'Nhiều ngày' },
+              ]"
+              :key="m.id"
               type="button"
-              @click="clearSchedule"
-              class="text-xs text-slate-400 hover:text-red-500 transition-colors"
-              title="Xóa giờ trên lịch"
+              @click="setScheduleMode(m.id as any)"
+              :class="[
+                'py-1 px-1.5 rounded-md font-medium transition-all cursor-pointer truncate',
+                scheduleMode === m.id
+                  ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+              ]"
             >
-              Xóa giờ
+              {{ m.label }}
             </button>
           </div>
-          <div class="flex items-center gap-1.5">
+
+          <!-- Mode: Theo giờ (Time-blocking) -->
+          <div v-if="scheduleMode === 'time_block'" class="flex items-center gap-1.5">
             <input
               type="time"
               :value="formattedStartTime"
               @change="onStartTimeChange"
               class="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1.5 text-slate-700 dark:text-slate-200 outline-none text-sm focus:border-blue-500"
-              placeholder="Bắt đầu"
             />
             <span class="text-slate-400">→</span>
             <input
@@ -336,9 +458,41 @@ function formatDateTime(timestamp: number): string {
               :value="formattedEndTime"
               @change="onEndTimeChange"
               class="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1.5 text-slate-700 dark:text-slate-200 outline-none text-sm focus:border-blue-500"
-              placeholder="Kết thúc"
             />
           </div>
+
+          <!-- Mode: Cả ngày (All-day) -->
+          <div v-else-if="scheduleMode === 'all_day'" class="flex items-center justify-between gap-2 text-xs">
+            <span class="text-slate-500 dark:text-slate-400">Ngày thực hiện:</span>
+            <input
+              type="date"
+              :value="formattedRangeStart || formattedInputDate"
+              @change="onAllDayDateChange"
+              class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1.5 text-slate-700 dark:text-slate-200 outline-none text-sm focus:border-blue-500"
+            />
+          </div>
+
+          <!-- Mode: Nhiều ngày (Date Range) -->
+          <div v-else-if="scheduleMode === 'date_range'" class="flex items-center gap-1.5">
+            <input
+              type="date"
+              :value="formattedRangeStart"
+              @change="onRangeStartChange"
+              class="flex-1 min-w-0 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1.5 text-slate-700 dark:text-slate-200 outline-none text-xs focus:border-blue-500"
+            />
+            <span class="text-slate-400">→</span>
+            <input
+              type="date"
+              :value="formattedRangeEnd"
+              @change="onRangeEndChange"
+              class="flex-1 min-w-0 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1.5 text-slate-700 dark:text-slate-200 outline-none text-xs focus:border-blue-500"
+            />
+          </div>
+        </div>
+
+        <!-- Recurrence Property -->
+        <div class="pt-2 border-t border-slate-100 dark:border-slate-800">
+          <RecurrenceSelector v-model="recurrenceRule" />
         </div>
       </div>
 

@@ -218,10 +218,15 @@ impl SyncEngine {
             "due_date": task.due_date,
             "start_time": task.start_time,
             "end_time": task.end_time,
+            "is_all_day": task.is_all_day,
+            "recurrence_rule": task.recurrence_rule,
             "updated_at": task.updated_at
         });
         if let Ok(()) = self.online_patch_task(&task.id, &payload).await {
             task.sync_status = "synced".to_string();
+            if task.status.is_done() && task.recurrence_rule.is_some() {
+                self.push_spawned_and_notify().await;
+            }
         } else {
             self.trigger_sync();
         }
@@ -258,6 +263,9 @@ impl SyncEngine {
         });
         if let Ok(()) = self.online_patch_task(&task.id, &payload).await {
             task.sync_status = "synced".to_string();
+            if task.status.is_done() && task.recurrence_rule.is_some() {
+                self.push_spawned_and_notify().await;
+            }
         } else {
             self.trigger_sync();
         }
@@ -273,10 +281,23 @@ impl SyncEngine {
         });
         if let Ok(()) = self.online_patch_task(&task.id, &payload).await {
             task.sync_status = "synced".to_string();
+            if task.status.is_done() && task.recurrence_rule.is_some() {
+                self.push_spawned_and_notify().await;
+            }
         } else {
             self.trigger_sync();
         }
         Ok(task)
+    }
+
+    async fn push_spawned_and_notify(&self) {
+        if let Some((user_id, access_token)) = self.get_auth_credentials().await {
+            let _ = self.push_pending_tasks(&user_id, &access_token).await;
+        }
+        let handle_lock = self.app_handle.lock().await;
+        if let Some(ref handle) = *handle_lock {
+            let _ = handle.emit("tasks-synced", ());
+        }
     }
 
     /// Xóa mềm task: Cập nhật deleted_at trực tiếp lên Supabase nếu online
@@ -315,6 +336,8 @@ impl SyncEngine {
             "due_date": task.due_date,
             "start_time": task.start_time,
             "end_time": task.end_time,
+            "is_all_day": task.is_all_day,
+            "recurrence_rule": task.recurrence_rule,
             "created_at": task.created_at,
             "updated_at": task.updated_at,
             "deleted_at": task.deleted_at
@@ -537,6 +560,8 @@ impl SyncEngine {
                     "due_date": t.due_date,
                     "start_time": t.start_time,
                     "end_time": t.end_time,
+                    "is_all_day": t.is_all_day,
+                    "recurrence_rule": t.recurrence_rule,
                     "created_at": t.created_at,
                     "updated_at": t.updated_at,
                     "deleted_at": t.deleted_at

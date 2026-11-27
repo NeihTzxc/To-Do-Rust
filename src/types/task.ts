@@ -12,6 +12,8 @@ export interface Task {
   due_date: number | null;
   start_time: number | null;
   end_time: number | null;
+  is_all_day: boolean;
+  recurrence_rule: string | null;
   created_at: number;
   updated_at: number;
   deleted_at: number | null;
@@ -47,6 +49,8 @@ export interface CreateTaskPayload {
   due_date?: number | null;
   start_time?: number | null;
   end_time?: number | null;
+  is_all_day?: boolean;
+  recurrence_rule?: string | null;
 }
 
 export interface UpdateTaskPayload {
@@ -58,4 +62,6 @@ export interface UpdateTaskPayload {
   due_date?: number | null;
   start_time?: number | null;
   end_time?: number | null;
+  is_all_day?: boolean;
+  recurrence_rule?: string | null;
 }

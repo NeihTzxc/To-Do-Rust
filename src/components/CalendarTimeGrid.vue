@@ -2,13 +2,19 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useTaskStore } from '@/stores/taskStore';
 import type { Task, Priority } from '@/types/task';
-import { calendarDay, calendarInterval, localDateKey } from '@/utils/calendarTask';
+import {
+  calendarInterval,
+  isAllDayOrMultiDay,
+  taskDateSpan,
+  localDateKey,
+} from '@/utils/calendarTask';
 import {
   Check,
   ChevronDown,
   ChevronUp,
   Clock,
   Plus,
+  Repeat,
 } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -126,12 +132,86 @@ function getTasksForDay(date: Date): Task[] {
   });
 }
 
-function getAllDayTasks(date: Date): Task[] {
-  const day = localDateKey(date);
-  return store.tasks.filter((task) => task.due_date != null && calendarDay(task) === day && !calendarInterval(task));
+interface AllDaySegment {
+  task: Task;
+  startCol: number;
+  spanCols: number;
+  lane: number;
+  continuesBefore: boolean;
+  continuesAfter: boolean;
 }
 
-const hasAllDayTasks = computed(() => days.value.some((day) => getAllDayTasks(day.date).length > 0));
+const allDaySegments = computed<AllDaySegment[]>(() => {
+  if (days.value.length === 0) return [];
+  const firstKey = days.value[0].dateStr;
+  const lastKey = days.value[days.value.length - 1].dateStr;
+
+  const matching: {
+    task: Task;
+    startIdx: number;
+    endIdx: number;
+    continuesBefore: boolean;
+    continuesAfter: boolean;
+  }[] = [];
+
+  for (const task of store.tasks) {
+    if (!isAllDayOrMultiDay(task)) continue;
+    const span = taskDateSpan(task);
+    if (!span) continue;
+    if (span.endKey < firstKey || span.startKey > lastKey) continue;
+
+    let startIdx = days.value.findIndex((d) => d.dateStr >= span.startKey);
+    if (startIdx === -1) startIdx = 0;
+
+    let endIdx = days.value.length - 1;
+    for (let i = days.value.length - 1; i >= 0; i--) {
+      if (days.value[i].dateStr <= span.endKey) {
+        endIdx = i;
+        break;
+      }
+    }
+    if (endIdx < startIdx) continue;
+
+    matching.push({
+      task,
+      startIdx,
+      endIdx,
+      continuesBefore: span.startKey < firstKey,
+      continuesAfter: span.endKey > lastKey,
+    });
+  }
+
+  // Sắp xếp: task kéo dài nhiều ngày lên trước
+  matching.sort((a, b) => {
+    const spanDiff = (b.endIdx - b.startIdx) - (a.endIdx - a.startIdx);
+    if (spanDiff !== 0) return spanDiff;
+    return a.startIdx - b.startIdx;
+  });
+
+  const laneEndCols: number[] = [];
+  const segments: AllDaySegment[] = [];
+
+  for (const item of matching) {
+    let lane = laneEndCols.findIndex((endCol) => endCol < item.startIdx);
+    if (lane === -1) {
+      lane = laneEndCols.length;
+      laneEndCols.push(item.endIdx);
+    } else {
+      laneEndCols[lane] = item.endIdx;
+    }
+
+    segments.push({
+      task: item.task,
+      startCol: item.startIdx + 1,
+      spanCols: item.endIdx - item.startIdx + 1,
+      lane,
+      continuesBefore: item.continuesBefore,
+      continuesAfter: item.continuesAfter,
+    });
+  }
+
+  return segments;
+});
 
 // Compute style (top, height) for a task block on the grid
 function getTaskStyle(task: Task, dayDate: Date) {
@@ -300,20 +380,46 @@ async function stopResizing() {
       </div>
     </div>
 
-    <!-- Tasks with a due date but no time block -->
-    <div v-if="hasAllDayTasks" class="flex flex-shrink-0 border-b border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/80">
-      <div class="w-16 flex-shrink-0 border-r border-slate-200/80 dark:border-slate-800 px-1 py-2 text-center text-[10px] text-slate-500">Cả ngày</div>
-      <div class="flex-1 grid" :style="{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }">
-        <div v-for="d in days" :key="d.dateStr" class="min-w-0 p-1 border-r last:border-r-0 border-slate-200/80 dark:border-slate-800">
-          <button
-            v-for="task in getAllDayTasks(d.date)"
-            :key="task.id"
-            type="button"
-            @click="store.selectTask(task.id)"
-            :class="['block w-full text-left truncate rounded border px-1.5 py-1 text-xs font-medium mb-1 last:mb-0', getPriorityColorClasses(task.priority), task.status === 'done' ? 'opacity-65 line-through' : '']"
-            :title="task.title"
-          >{{ task.title }}</button>
-        </div>
+    <!-- All-day & Multi-day Tasks Strip (Hỗ trợ kéo dài nhiều ngày ngang các cột) -->
+    <div v-if="allDaySegments.length > 0" class="flex flex-shrink-0 border-b border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/80">
+      <div class="w-16 flex-shrink-0 border-r border-slate-200/80 dark:border-slate-800 px-1 py-2 text-center text-[10px] font-medium text-slate-500 flex items-center justify-center">
+        Cả ngày
+      </div>
+      <div
+        class="flex-1 grid gap-y-1 p-1 relative"
+        :style="{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }"
+      >
+        <button
+          v-for="seg in allDaySegments"
+          :key="seg.task.id"
+          type="button"
+          @click="store.selectTask(seg.task.id)"
+          :style="{
+            gridColumn: `${seg.startCol} / span ${seg.spanCols}`,
+            gridRow: `${seg.lane + 1}`
+          }"
+          :class="[
+            'flex items-center gap-1.5 min-w-0 text-left border px-2 py-1 text-xs font-medium transition-all hover:brightness-95 cursor-pointer mx-0.5',
+            seg.continuesBefore ? 'rounded-l-none border-l-0 ml-0' : 'rounded-l-md',
+            seg.continuesAfter ? 'rounded-r-none border-r-0 mr-0' : 'rounded-r-md',
+            getPriorityColorClasses(seg.task.priority),
+            store.selectedTaskId === seg.task.id ? 'ring-2 ring-blue-600' : '',
+            seg.task.status === 'done' ? 'opacity-65 line-through' : ''
+          ]"
+          :title="seg.task.title"
+        >
+          <span
+            @click.stop="store.toggleTaskStatus(seg.task.id)"
+            :class="[
+              'w-3 h-3 rounded-full border-[1.5px] flex items-center justify-center flex-shrink-0 transition-colors',
+              seg.task.status === 'done' ? 'bg-slate-800 border-slate-800 text-white' : 'border-slate-600 hover:border-slate-900'
+            ]"
+          >
+            <Check v-if="seg.task.status === 'done'" class="w-2 h-2 stroke-[3]" />
+          </span>
+          <span class="truncate flex-1">{{ seg.task.title }}</span>
+          <Repeat v-if="seg.task.recurrence_rule" class="w-3 h-3 flex-shrink-0 opacity-75" />
+        </button>
       </div>
     </div>
 
@@ -454,7 +560,8 @@ async function stopResizing() {
             <!-- Time Range text -->
             <div class="flex items-center gap-1 text-[10px] font-medium text-slate-700/90 mt-0.5 select-none">
               <Clock class="w-2.5 h-2.5 flex-shrink-0" />
-              <span>{{ formatTaskTime(task) }}</span>
+              <span class="truncate">{{ formatTaskTime(task) }}</span>
+              <Repeat v-if="task.recurrence_rule" class="w-2.5 h-2.5 flex-shrink-0 opacity-75 ml-auto" />
             </div>
 
             <!-- Bottom Resize Handle -->

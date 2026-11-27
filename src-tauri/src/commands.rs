@@ -24,6 +24,8 @@ pub async fn create_task(
     due_date: Option<i64>,
     start_time: Option<i64>,
     end_time: Option<i64>,
+    is_all_day: Option<bool>,
+    recurrence_rule: Option<String>,
 ) -> Result<Task, String> {
     let priority_val = priority.map(Priority::from_i64).unwrap_or(Priority::Medium);
     let input = CreateTaskInput {
@@ -33,6 +35,8 @@ pub async fn create_task(
         due_date,
         start_time,
         end_time,
+        is_all_day: is_all_day.unwrap_or(false),
+        recurrence_rule: recurrence_rule.filter(|s| !s.trim().is_empty()),
     };
     sync_engine.create_task_online(input).await.map_err(|e| e.to_string())
 }
@@ -48,6 +52,8 @@ pub async fn update_task(
     due_date: Option<i64>,
     start_time: Option<i64>,
     end_time: Option<i64>,
+    is_all_day: Option<bool>,
+    recurrence_rule: Option<String>,
 ) -> Result<Task, String> {
     let input = UpdateTaskInput {
         id,
@@ -58,6 +64,8 @@ pub async fn update_task(
         due_date,
         start_time,
         end_time,
+        is_all_day: is_all_day.unwrap_or(false),
+        recurrence_rule: recurrence_rule.filter(|s| !s.trim().is_empty()),
     };
     sync_engine.update_task_online(input).await.map_err(|e| e.to_string())
 }

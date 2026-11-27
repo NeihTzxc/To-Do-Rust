@@ -19,6 +19,8 @@ async fn test_sqlite_repository_crud_and_sync() {
         due_date: None,
         start_time: Some(1735689600000),
         end_time: Some(1735693200000),
+        is_all_day: false,
+        recurrence_rule: None,
     };
 
     let created = repo.create_task(input).await.expect("Tạo task thất bại");
@@ -59,6 +61,8 @@ async fn test_sqlite_repository_crud_and_sync() {
         due_date: Some(1735689600000),
         start_time: Some(1735690000000),
         end_time: Some(1735695000000),
+        is_all_day: false,
+        recurrence_rule: None,
     };
 
     let updated = repo.update_task(update_input).await.expect("Cập nhật task thất bại");
@@ -168,4 +172,50 @@ async fn test_sync_engine_fallback_when_offline() {
     // Khi chưa cấu hình / chưa đăng nhập, get_tasks_online_or_offline fallback về SQLite
     let tasks = engine.get_tasks_online_or_offline().await.expect("fallback success");
     assert_eq!(tasks.len(), 0);
+}
+
+#[tokio::test]
+async fn test_all_day_and_recurring_task_spawning() {
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    let db_path = temp_dir.path().join("test_recurring.db");
+    let repo = SqliteTaskRepo::new_with_path(&db_path)
+        .await
+        .expect("init repo");
+
+    // Tạo task cả ngày lặp lại hàng ngày
+    let base_start = 1795400000000_i64;
+    let base_end = base_start + 86_399_999;
+    let created = repo
+        .create_task(CreateTaskInput {
+            title: "Tập thể dục buổi sáng".to_string(),
+            description: None,
+            priority: Priority::Medium,
+            due_date: Some(base_end),
+            start_time: Some(base_start),
+            end_time: Some(base_end),
+            is_all_day: true,
+            recurrence_rule: Some("daily".to_string()),
+        })
+        .await
+        .expect("create recurring task");
+
+    assert!(created.is_all_day);
+    assert_eq!(created.recurrence_rule.as_deref(), Some("daily"));
+
+    // Hoàn thành kỳ hiện tại -> phải tự động sinh kỳ tiếp theo (+1 ngày)
+    let done_task = repo.toggle_status(&created.id).await.expect("toggle done");
+    assert_eq!(done_task.status, TaskStatus::Done);
+
+    let all_tasks = repo.list_active_tasks().await.expect("list tasks");
+    assert_eq!(all_tasks.len(), 2);
+
+    let next_occ = all_tasks
+        .iter()
+        .find(|t| t.id != created.id)
+        .expect("next occurrence must exist");
+    assert_eq!(next_occ.status, TaskStatus::Todo);
+    assert!(next_occ.is_all_day);
+    assert_eq!(next_occ.recurrence_rule.as_deref(), Some("daily"));
+    assert_eq!(next_occ.start_time, Some(base_start + 86_400_000));
+    assert_eq!(next_occ.end_time, Some(base_end + 86_400_000));
 }
