@@ -166,6 +166,9 @@ pub struct Task {
     pub due_date: Option<i64>,
     pub start_time: Option<i64>,
     pub end_time: Option<i64>,
+    #[serde(default)]
+    pub is_all_day: bool,
+    pub recurrence_rule: Option<String>,
     #[serde(default = "default_now")]
     pub created_at: i64,
     #[serde(default = "default_now")]
@@ -195,12 +198,59 @@ impl Task {
             due_date,
             start_time: None,
             end_time: None,
+            is_all_day: false,
+            recurrence_rule: None,
             created_at: now,
             updated_at: now,
             deleted_at: None,
             sync_status: "pending".to_string(),
         }
     }
+}
+
+/// Tính thời điểm (epoch ms) cho kỳ tiếp theo dựa trên `base_ms` và `recurrence_rule`.
+/// Hỗ trợ: "daily", "weekly", "monthly", hoặc "weekly:1,3,5" (1=T2 .. 7=CN).
+pub fn compute_next_occurrence_ms(base_ms: i64, rule: &str) -> Option<i64> {
+    use chrono::{Datelike, Duration, Local, Months, TimeZone};
+
+    let trimmed = rule.trim().to_lowercase();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let dt = Local.timestamp_millis_opt(base_ms).single()?;
+
+    if trimmed == "daily" {
+        return Some((dt + Duration::days(1)).timestamp_millis());
+    }
+    if trimmed == "weekly" {
+        return Some((dt + Duration::days(7)).timestamp_millis());
+    }
+    if trimmed == "monthly" {
+        let next = dt
+            .checked_add_months(Months::new(1))
+            .unwrap_or_else(|| dt + Duration::days(30));
+        return Some(next.timestamp_millis());
+    }
+    if let Some(days_part) = trimmed.strip_prefix("weekly:") {
+        let target_days: Vec<u32> = days_part
+            .split(',')
+            .filter_map(|s| s.trim().parse::<u32>().ok())
+            .filter(|&d| (1..=7).contains(&d))
+            .collect();
+        if target_days.is_empty() {
+            return Some((dt + Duration::days(7)).timestamp_millis());
+        }
+        for offset in 1..=7 {
+            let candidate = dt + Duration::days(offset);
+            let wd = candidate.weekday().number_from_monday();
+            if target_days.contains(&wd) {
+                return Some(candidate.timestamp_millis());
+            }
+        }
+    }
+
+    None
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -211,6 +261,9 @@ pub struct CreateTaskInput {
     pub due_date: Option<i64>,
     pub start_time: Option<i64>,
     pub end_time: Option<i64>,
+    #[serde(default)]
+    pub is_all_day: bool,
+    pub recurrence_rule: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -223,4 +276,7 @@ pub struct UpdateTaskInput {
     pub due_date: Option<i64>,
     pub start_time: Option<i64>,
     pub end_time: Option<i64>,
+    #[serde(default)]
+    pub is_all_day: bool,
+    pub recurrence_rule: Option<String>,
 }

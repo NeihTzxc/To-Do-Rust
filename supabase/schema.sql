@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS public.tasks (
     due_date BIGINT,
     start_time BIGINT,
     end_time BIGINT,
+    is_all_day BOOLEAN NOT NULL DEFAULT FALSE,
+    recurrence_rule TEXT,
     created_at BIGINT NOT NULL,
     updated_at BIGINT NOT NULL,
     deleted_at BIGINT
@@ -71,5 +73,9 @@ CREATE TRIGGER set_tasks_updated_at
     BEFORE UPDATE ON public.tasks
     FOR EACH ROW
     EXECUTE FUNCTION public.handle_tasks_updated_at();
+
+-- 7. Migration cho bảng tasks đã tồn tại (chạy an toàn nhiều lần)
+ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS is_all_day BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS recurrence_rule TEXT;
 
 

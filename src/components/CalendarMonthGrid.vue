@@ -2,8 +2,8 @@
 import { computed } from 'vue';
 import { useTaskStore } from '@/stores/taskStore';
 import type { Task, Priority } from '@/types/task';
-import { calendarDay, localDateKey } from '@/utils/calendarTask';
-import { Check, Plus } from 'lucide-vue-next';
+import { taskDateSpan, localDateKey } from '@/utils/calendarTask';
+import { Check, Plus, Repeat } from 'lucide-vue-next';
 
 const emit = defineEmits<{
   (e: 'createAt', payload: { startTime: number; endTime: number; dateStr: string }): void;
@@ -79,9 +79,36 @@ const monthCells = computed(() => {
   return cells;
 });
 
-function getTasksForCell(date: Date): Task[] {
+interface MonthTaskChip {
+  task: Task;
+  isMultiDay: boolean;
+  isStart: boolean;
+  isEnd: boolean;
+}
+
+function getTasksForCell(date: Date): MonthTaskChip[] {
   const day = localDateKey(date);
-  return store.tasks.filter((task) => calendarDay(task) === day);
+  const chips: MonthTaskChip[] = [];
+
+  for (const task of store.tasks) {
+    const span = taskDateSpan(task);
+    if (!span) continue;
+    if (span.startKey <= day && day <= span.endKey) {
+      chips.push({
+        task,
+        isMultiDay: span.isMultiDay,
+        isStart: span.startKey === day,
+        isEnd: span.endKey === day,
+      });
+    }
+  }
+
+  chips.sort((a, b) => {
+    if (a.isMultiDay !== b.isMultiDay) return a.isMultiDay ? -1 : 1;
+    return a.task.created_at - b.task.created_at;
+  });
+
+  return chips;
 }
 
 function getPriorityColorClasses(p: Priority): string {
@@ -196,31 +223,41 @@ function handleCellClick(cell: MonthDayCell) {
         <!-- Task Chips in this Day -->
         <div class="flex-1 space-y-1 overflow-y-auto max-h-24">
           <div
-            v-for="task in getTasksForCell(cell.date)"
-            :key="task.id"
+            v-for="chip in getTasksForCell(cell.date)"
+            :key="chip.task.id"
             draggable="true"
-            @dragstart="handleDragStart($event, task)"
-            @click.stop="store.selectTask(task.id)"
+            @dragstart="handleDragStart($event, chip.task)"
+            @click.stop="store.selectTask(chip.task.id)"
             :class="[
-              'px-1.5 py-0.5 rounded border text-[11px] font-medium flex items-center gap-1 truncate shadow-xs cursor-grab active:cursor-grabbing hover:opacity-90',
-              getPriorityColorClasses(task.priority),
-              task.status === 'done' ? 'line-through opacity-60' : '',
-              store.selectedTaskId === task.id ? 'ring-2 ring-blue-600' : ''
+              'py-0.5 border text-[11px] font-medium flex items-center gap-1 truncate shadow-xs cursor-grab active:cursor-grabbing hover:opacity-90',
+              !chip.isMultiDay
+                ? 'px-1.5 rounded'
+                : chip.isStart && chip.isEnd
+                  ? 'px-1.5 rounded'
+                  : chip.isStart
+                    ? 'pl-1.5 pr-1 -mr-1.5 rounded-l border-r-0'
+                    : chip.isEnd
+                      ? 'pl-1 pr-1.5 -ml-1.5 rounded-r border-l-0'
+                      : 'px-1 -mx-1.5 rounded-none border-x-0',
+              getPriorityColorClasses(chip.task.priority),
+              chip.task.status === 'done' ? 'line-through opacity-60' : '',
+              store.selectedTaskId === chip.task.id ? 'ring-2 ring-blue-600' : ''
             ]"
           >
             <button
               type="button"
-              @click.stop="store.toggleTaskStatus(task.id)"
+              @click.stop="store.toggleTaskStatus(chip.task.id)"
               :class="[
                 'w-2.5 h-2.5 rounded-sm border flex items-center justify-center flex-shrink-0 transition-colors',
-                task.status === 'done'
+                chip.task.status === 'done'
                   ? 'bg-slate-800 border-slate-800 text-white'
                   : 'border-slate-700 text-transparent'
               ]"
             >
               <Check class="w-2 h-2 stroke-[3]" />
             </button>
-            <span class="truncate flex-1">{{ task.title }}</span>
+            <span class="truncate flex-1">{{ chip.task.title }}</span>
+            <Repeat v-if="chip.task.recurrence_rule" class="w-2.5 h-2.5 flex-shrink-0 opacity-75" />
           </div>
         </div>
       </div>

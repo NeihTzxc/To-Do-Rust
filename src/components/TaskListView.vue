@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue';
 import { useTaskStore } from '@/stores/taskStore';
 import type { Priority } from '@/types/task';
+import { formatRecurrenceLabel } from '@/utils/calendarTask';
 import {
   ChevronDown,
   ChevronRight,
@@ -10,6 +11,7 @@ import {
   Clock,
   Circle,
   FileText,
+  Repeat,
 } from 'lucide-vue-next';
 
 const store = useTaskStore();
@@ -135,6 +137,16 @@ function formatTaskDate(timestamp: number | null): { text: string; isOverdue: bo
             </span>
           </div>
 
+          <!-- Recurrence badge -->
+          <div
+            v-if="task.recurrence_rule"
+            class="flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-300 flex-shrink-0"
+            title="Công việc lặp lại"
+          >
+            <Repeat class="w-3 h-3" />
+            <span>{{ formatRecurrenceLabel(task.recurrence_rule) }}</span>
+          </div>
+
           <!-- Description badge icon if present -->
           <div v-if="task.description" class="text-slate-400" title="Có ghi chú chi tiết">
             <FileText class="w-3.5 h-3.5" />
@@ -202,6 +214,16 @@ function formatTaskDate(timestamp: number | null): { text: string; isOverdue: bo
             </span>
           </div>
 
+          <!-- Recurrence badge -->
+          <div
+            v-if="task.recurrence_rule"
+            class="flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-300 flex-shrink-0"
+            title="Công việc lặp lại"
+          >
+            <Repeat class="w-3 h-3" />
+            <span>{{ formatRecurrenceLabel(task.recurrence_rule) }}</span>
+          </div>
+
           <!-- Description badge icon if present -->
           <div v-if="task.description" class="text-slate-400" title="Có ghi chú chi tiết">
             <FileText class="w-3.5 h-3.5" />
@@ -266,6 +288,16 @@ function formatTaskDate(timestamp: number | null): { text: string; isOverdue: bo
             <span class="text-sm font-medium text-slate-400 dark:text-slate-500 line-through truncate block">
               {{ task.title }}
             </span>
+          </div>
+
+          <!-- Recurrence badge -->
+          <div
+            v-if="task.recurrence_rule"
+            class="flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-300 flex-shrink-0"
+            title="Công việc lặp lại"
+          >
+            <Repeat class="w-3 h-3" />
+            <span>{{ formatRecurrenceLabel(task.recurrence_rule) }}</span>
           </div>
 
           <!-- Description badge icon if present -->

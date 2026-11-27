@@ -10,7 +10,9 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 use crate::domain::auth::{AuthSession, UserInfo};
-use crate::domain::task::{CreateTaskInput, Priority, Task, TaskStatus, UpdateTaskInput};
+use crate::domain::task::{
+    compute_next_occurrence_ms, CreateTaskInput, Priority, Task, TaskStatus, UpdateTaskInput,
+};
 use crate::storage::TaskRepository;
 
 #[derive(Clone)]
@@ -97,6 +99,7 @@ impl SqliteTaskRepo {
     fn map_row(row: SqliteRow) -> Task {
         let status_str: String = row.get("status");
         let priority_int: i64 = row.get("priority");
+        let is_all_day_int: i64 = row.try_get("is_all_day").unwrap_or(0);
 
         Task {
             id: row.get("id"),
@@ -108,11 +111,79 @@ impl SqliteTaskRepo {
             due_date: row.get("due_date"),
             start_time: row.get("start_time"),
             end_time: row.get("end_time"),
+            is_all_day: is_all_day_int != 0,
+            recurrence_rule: row.try_get("recurrence_rule").unwrap_or(None),
             created_at: row.get("created_at"),
             updated_at: row.get("updated_at"),
             deleted_at: row.get("deleted_at"),
             sync_status: row.get("sync_status"),
         }
+    }
+
+    /// Nếu task chuyển từ chưa hoàn thành -> hoàn thành và có recurrence_rule,
+    /// tự động sinh bản ghi kỳ tiếp theo trong SQLite (sync_status = 'pending').
+    async fn spawn_next_recurring_if_needed(&self, prev: &Task, new_status: TaskStatus) -> Result<Option<Task>> {
+        if prev.status.is_done() || !new_status.is_done() {
+            return Ok(None);
+        }
+        let Some(ref rule) = prev.recurrence_rule else {
+            return Ok(None);
+        };
+        if rule.trim().is_empty() {
+            return Ok(None);
+        }
+
+        let now = Utc::now().timestamp_millis();
+        let base = prev.start_time.or(prev.due_date).unwrap_or(now);
+        let Some(next_base) = compute_next_occurrence_ms(base, rule) else {
+            return Ok(None);
+        };
+        let delta = next_base - base;
+        let next_due = prev.due_date.map(|d| d + delta);
+        let next_start = prev.start_time.map(|s| s + delta);
+        let next_end = prev.end_time.map(|e| e + delta);
+        let next_id = Uuid::now_v7().to_string();
+
+        sqlx::query(
+            "INSERT INTO tasks (
+                 id, user_id, title, description, status, priority,
+                 due_date, start_time, end_time, is_all_day, recurrence_rule,
+                 created_at, updated_at, deleted_at, sync_status
+             )
+             VALUES ($1, $2, $3, $4, 'todo', $5, $6, $7, $8, $9, $10, $11, $11, NULL, 'pending')",
+        )
+        .bind(&next_id)
+        .bind(&prev.user_id)
+        .bind(&prev.title)
+        .bind(&prev.description)
+        .bind(prev.priority.as_i64())
+        .bind(next_due)
+        .bind(next_start)
+        .bind(next_end)
+        .bind(if prev.is_all_day { 1_i64 } else { 0_i64 })
+        .bind(&prev.recurrence_rule)
+        .bind(now)
+        .execute(&self.pool)
+        .await
+        .context("Lỗi tự động sinh kỳ tiếp theo cho task lặp lại")?;
+
+        Ok(Some(Task {
+            id: next_id,
+            user_id: prev.user_id.clone(),
+            title: prev.title.clone(),
+            description: prev.description.clone(),
+            status: TaskStatus::Todo,
+            priority: prev.priority,
+            due_date: next_due,
+            start_time: next_start,
+            end_time: next_end,
+            is_all_day: prev.is_all_day,
+            recurrence_rule: prev.recurrence_rule.clone(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            sync_status: "pending".to_string(),
+        }))
     }
 }
 
@@ -122,7 +193,7 @@ impl TaskRepository for SqliteTaskRepo {
         let uid = self.current_user_id().await?;
         let rows = if let Some(ref user_id) = uid {
             sqlx::query(
-                "SELECT id, user_id, title, description, status, priority, due_date, start_time, end_time, created_at, updated_at, deleted_at, sync_status
+                "SELECT id, user_id, title, description, status, priority, due_date, start_time, end_time, is_all_day, recurrence_rule, created_at, updated_at, deleted_at, sync_status
                  FROM tasks
                  WHERE deleted_at IS NULL AND user_id = $1
                  ORDER BY
@@ -136,7 +207,7 @@ impl TaskRepository for SqliteTaskRepo {
             .context("Lỗi truy vấn danh sách task của user đang hoạt động")?
         } else {
             sqlx::query(
-                "SELECT id, user_id, title, description, status, priority, due_date, start_time, end_time, created_at, updated_at, deleted_at, sync_status
+                "SELECT id, user_id, title, description, status, priority, due_date, start_time, end_time, is_all_day, recurrence_rule, created_at, updated_at, deleted_at, sync_status
                  FROM tasks
                  WHERE deleted_at IS NULL AND user_id IS NULL
                  ORDER BY
@@ -155,7 +226,7 @@ impl TaskRepository for SqliteTaskRepo {
 
     async fn get_task_by_id(&self, id: &str) -> Result<Option<Task>> {
         let maybe_row = sqlx::query(
-            "SELECT id, user_id, title, description, status, priority, due_date, start_time, end_time, created_at, updated_at, deleted_at, sync_status
+            "SELECT id, user_id, title, description, status, priority, due_date, start_time, end_time, is_all_day, recurrence_rule, created_at, updated_at, deleted_at, sync_status
              FROM tasks
              WHERE id = $1 AND deleted_at IS NULL",
         )
@@ -177,9 +248,10 @@ impl TaskRepository for SqliteTaskRepo {
         sqlx::query(
             "INSERT INTO tasks (
                  id, user_id, title, description, status, priority,
-                 due_date, start_time, end_time, created_at, updated_at, deleted_at, sync_status
+                 due_date, start_time, end_time, is_all_day, recurrence_rule,
+                 created_at, updated_at, deleted_at, sync_status
              )
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
         )
         .bind(&id)
         .bind(&uid)
@@ -190,6 +262,8 @@ impl TaskRepository for SqliteTaskRepo {
         .bind(input.due_date)
         .bind(input.start_time)
         .bind(input.end_time)
+        .bind(if input.is_all_day { 1_i64 } else { 0_i64 })
+        .bind(&input.recurrence_rule)
         .bind(now)
         .bind(now)
         .bind(None::<i64>)
@@ -208,6 +282,8 @@ impl TaskRepository for SqliteTaskRepo {
             due_date: input.due_date,
             start_time: input.start_time,
             end_time: input.end_time,
+            is_all_day: input.is_all_day,
+            recurrence_rule: input.recurrence_rule,
             created_at: now,
             updated_at: now,
             deleted_at: None,
@@ -216,6 +292,11 @@ impl TaskRepository for SqliteTaskRepo {
     }
 
     async fn update_task(&self, input: UpdateTaskInput) -> Result<Task> {
+        let prev = self
+            .get_task_by_id(&input.id)
+            .await?
+            .with_context(|| format!("Không tìm thấy task với ID: {} hoặc đã bị xóa", input.id))?;
+
         let now = Utc::now().timestamp_millis();
         let sync_status = "pending";
 
@@ -228,9 +309,11 @@ impl TaskRepository for SqliteTaskRepo {
                  due_date = $5,
                  start_time = $6,
                  end_time = $7,
-                 updated_at = $8,
-                 sync_status = $9
-             WHERE id = $10 AND deleted_at IS NULL",
+                 is_all_day = $8,
+                 recurrence_rule = $9,
+                 updated_at = $10,
+                 sync_status = $11
+             WHERE id = $12 AND deleted_at IS NULL",
         )
         .bind(&input.title)
         .bind(&input.description)
@@ -239,6 +322,8 @@ impl TaskRepository for SqliteTaskRepo {
         .bind(input.due_date)
         .bind(input.start_time)
         .bind(input.end_time)
+        .bind(if input.is_all_day { 1_i64 } else { 0_i64 })
+        .bind(&input.recurrence_rule)
         .bind(now)
         .bind(sync_status)
         .bind(&input.id)
@@ -254,6 +339,8 @@ impl TaskRepository for SqliteTaskRepo {
             .get_task_by_id(&input.id)
             .await?
             .context("Không thể tải lại task sau khi cập nhật")?;
+
+        let _ = self.spawn_next_recurring_if_needed(&prev, input.status).await?;
 
         Ok(updated)
     }
@@ -292,6 +379,11 @@ impl TaskRepository for SqliteTaskRepo {
     }
 
     async fn change_status(&self, id: &str, new_status: TaskStatus) -> Result<Task> {
+        let prev = self
+            .get_task_by_id(id)
+            .await?
+            .with_context(|| format!("Không tìm thấy task để cập nhật trạng thái: {}", id))?;
+
         let now = Utc::now().timestamp_millis();
         let sync_status = "pending";
 
@@ -318,6 +410,8 @@ impl TaskRepository for SqliteTaskRepo {
             .get_task_by_id(id)
             .await?
             .context("Không thể tải lại task sau khi cập nhật trạng thái")?;
+
+        let _ = self.spawn_next_recurring_if_needed(&prev, new_status).await?;
 
         Ok(updated)
     }
@@ -364,7 +458,7 @@ impl TaskRepository for SqliteTaskRepo {
         if trimmed.is_empty() {
             let rows = if let Some(ref user_id) = uid {
                 sqlx::query(
-                    "SELECT id, user_id, title, description, status, priority, due_date, start_time, end_time, created_at, updated_at, deleted_at, sync_status
+                    "SELECT id, user_id, title, description, status, priority, due_date, start_time, end_time, is_all_day, recurrence_rule, created_at, updated_at, deleted_at, sync_status
                      FROM tasks
                      WHERE deleted_at IS NULL AND user_id = $1
                      ORDER BY
@@ -378,7 +472,7 @@ impl TaskRepository for SqliteTaskRepo {
                 .context("Lỗi truy vấn task gần đây của user")?
             } else {
                 sqlx::query(
-                    "SELECT id, user_id, title, description, status, priority, due_date, start_time, end_time, created_at, updated_at, deleted_at, sync_status
+                    "SELECT id, user_id, title, description, status, priority, due_date, start_time, end_time, is_all_day, recurrence_rule, created_at, updated_at, deleted_at, sync_status
                      FROM tasks
                      WHERE deleted_at IS NULL AND user_id IS NULL
                      ORDER BY
@@ -398,7 +492,7 @@ impl TaskRepository for SqliteTaskRepo {
 
         let rows = if let Some(ref user_id) = uid {
             sqlx::query(
-                "SELECT id, user_id, title, description, status, priority, due_date, start_time, end_time, created_at, updated_at, deleted_at, sync_status
+                "SELECT id, user_id, title, description, status, priority, due_date, start_time, end_time, is_all_day, recurrence_rule, created_at, updated_at, deleted_at, sync_status
                  FROM tasks
                  WHERE deleted_at IS NULL AND user_id = $1
                  ORDER BY
@@ -411,7 +505,7 @@ impl TaskRepository for SqliteTaskRepo {
             .context("Lỗi truy vấn danh sách task phục vụ tìm kiếm")?
         } else {
             sqlx::query(
-                "SELECT id, user_id, title, description, status, priority, due_date, start_time, end_time, created_at, updated_at, deleted_at, sync_status
+                "SELECT id, user_id, title, description, status, priority, due_date, start_time, end_time, is_all_day, recurrence_rule, created_at, updated_at, deleted_at, sync_status
                  FROM tasks
                  WHERE deleted_at IS NULL AND user_id IS NULL
                  ORDER BY
@@ -544,7 +638,7 @@ impl TaskRepository for SqliteTaskRepo {
 
     async fn get_pending_sync_tasks(&self, user_id: &str) -> Result<Vec<Task>> {
         let rows = sqlx::query(
-            "SELECT id, user_id, title, description, status, priority, due_date, start_time, end_time, created_at, updated_at, deleted_at, sync_status
+            "SELECT id, user_id, title, description, status, priority, due_date, start_time, end_time, is_all_day, recurrence_rule, created_at, updated_at, deleted_at, sync_status
              FROM tasks
              WHERE user_id = $1 AND sync_status = 'pending'
              ORDER BY updated_at ASC",
@@ -593,9 +687,10 @@ impl TaskRepository for SqliteTaskRepo {
                 sqlx::query(
                     "INSERT INTO tasks (
                          id, user_id, title, description, status, priority,
-                         due_date, start_time, end_time, created_at, updated_at, deleted_at, sync_status
+                         due_date, start_time, end_time, is_all_day, recurrence_rule,
+                         created_at, updated_at, deleted_at, sync_status
                      )
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'synced')",
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'synced')",
                 )
                 .bind(&remote.id)
                 .bind(&remote.user_id)
@@ -606,6 +701,8 @@ impl TaskRepository for SqliteTaskRepo {
                 .bind(remote.due_date)
                 .bind(remote.start_time)
                 .bind(remote.end_time)
+                .bind(if remote.is_all_day { 1_i64 } else { 0_i64 })
+                .bind(&remote.recurrence_rule)
                 .bind(remote.created_at)
                 .bind(remote.updated_at)
                 .bind(remote.deleted_at)
@@ -631,10 +728,12 @@ impl TaskRepository for SqliteTaskRepo {
                              due_date = $6,
                              start_time = $7,
                              end_time = $8,
-                             updated_at = $9,
-                             deleted_at = $10,
+                             is_all_day = $9,
+                             recurrence_rule = $10,
+                             updated_at = $11,
+                             deleted_at = $12,
                              sync_status = 'synced'
-                         WHERE id = $11",
+                         WHERE id = $13",
                     )
                     .bind(&remote.user_id)
                     .bind(&remote.title)
@@ -644,6 +743,8 @@ impl TaskRepository for SqliteTaskRepo {
                     .bind(remote.due_date)
                     .bind(remote.start_time)
                     .bind(remote.end_time)
+                    .bind(if remote.is_all_day { 1_i64 } else { 0_i64 })
+                    .bind(&remote.recurrence_rule)
                     .bind(remote.updated_at)
                     .bind(remote.deleted_at)
                     .bind(&remote.id)

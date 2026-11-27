@@ -2,9 +2,16 @@
 import { ref, computed } from 'vue';
 import { useTaskStore } from '@/stores/taskStore';
 import type { CalendarViewMode, Priority } from '@/types/task';
+import {
+  localDateKey,
+  parseDateKey,
+  startOfDayMs,
+  endOfDayMs,
+} from '@/utils/calendarTask';
 import UnscheduledDrawer from '@/components/UnscheduledDrawer.vue';
 import CalendarTimeGrid from '@/components/CalendarTimeGrid.vue';
 import CalendarMonthGrid from '@/components/CalendarMonthGrid.vue';
+import RecurrenceSelector from '@/components/RecurrenceSelector.vue';
 import {
   ChevronLeft,
   ChevronRight,
@@ -26,6 +33,9 @@ const newDescription = ref('');
 const newPriority = ref<Priority>(2);
 const newStartTime = ref<number | null>(null);
 const newEndTime = ref<number | null>(null);
+const newIsAllDay = ref(false);
+const newRecurrenceRule = ref<string | null>(null);
+const newScheduleMode = ref<'time_block' | 'all_day' | 'date_range'>('time_block');
 
 // Header Month & Year Title (e.g. "Tháng 11 2026" or "November 2026")
 const currentHeaderTitle = computed(() => {
@@ -51,7 +61,51 @@ function openCreateModal(defaultTimes?: { startTime: number; endTime: number; da
   newTitle.value = '';
   newDescription.value = '';
   newPriority.value = 2;
+  newIsAllDay.value = false;
+  newRecurrenceRule.value = null;
+  newScheduleMode.value = 'time_block';
   isCreateModalOpen.value = true;
+}
+
+function setModalScheduleMode(mode: 'time_block' | 'all_day' | 'date_range') {
+  newScheduleMode.value = mode;
+  const base = newStartTime.value ? new Date(newStartTime.value) : new Date(store.calendarCurrentDate);
+  if (mode === 'time_block') {
+    newIsAllDay.value = false;
+    const s = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 9, 0, 0, 0);
+    newStartTime.value = s.getTime();
+    newEndTime.value = s.getTime() + 60 * 60 * 1000;
+  } else if (mode === 'all_day') {
+    newIsAllDay.value = true;
+    newStartTime.value = startOfDayMs(base);
+    newEndTime.value = endOfDayMs(base);
+  } else {
+    newIsAllDay.value = true;
+    const e = new Date(base);
+    e.setDate(e.getDate() + 1);
+    newStartTime.value = startOfDayMs(base);
+    newEndTime.value = endOfDayMs(e);
+  }
+}
+
+function onModalRangeStartChange(e: Event) {
+  const val = (e.target as HTMLInputElement).value;
+  if (!val) return;
+  const s = parseDateKey(val);
+  newStartTime.value = startOfDayMs(s);
+  if (!newEndTime.value || newEndTime.value < newStartTime.value) {
+    newEndTime.value = endOfDayMs(s);
+  }
+}
+
+function onModalRangeEndChange(e: Event) {
+  const val = (e.target as HTMLInputElement).value;
+  if (!val) return;
+  const end = parseDateKey(val);
+  newEndTime.value = endOfDayMs(end);
+  if (!newStartTime.value || newStartTime.value > newEndTime.value) {
+    newStartTime.value = startOfDayMs(end);
+  }
 }
 
 async function handleCreateTask() {
@@ -64,6 +118,8 @@ async function handleCreateTask() {
     due_date: newEndTime.value,
     start_time: newStartTime.value,
     end_time: newEndTime.value,
+    is_all_day: newIsAllDay.value,
+    recurrence_rule: newRecurrenceRule.value,
   });
 
   isCreateModalOpen.value = false;
@@ -305,8 +361,30 @@ function onModalEndTimeChange(e: Event) {
             />
           </div>
 
-          <!-- Time Range Input -->
-          <div class="flex items-center gap-2 text-xs">
+          <!-- Schedule Mode Tabs -->
+          <div class="grid grid-cols-3 gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg text-xs">
+            <button
+              v-for="m in [
+                { id: 'time_block', label: 'Theo giờ' },
+                { id: 'all_day', label: 'Cả ngày' },
+                { id: 'date_range', label: 'Nhiều ngày' },
+              ]"
+              :key="m.id"
+              type="button"
+              @click="setModalScheduleMode(m.id as any)"
+              :class="[
+                'py-1 rounded-md font-medium transition-colors',
+                newScheduleMode === m.id
+                  ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+              ]"
+            >
+              {{ m.label }}
+            </button>
+          </div>
+
+          <!-- Time Range Input (Theo giờ) -->
+          <div v-if="newScheduleMode === 'time_block'" class="flex items-center gap-2 text-xs">
             <Clock class="w-4 h-4 text-slate-400 flex-shrink-0" />
             <div class="flex items-center gap-1.5 flex-1">
               <input
@@ -323,6 +401,39 @@ function onModalEndTimeChange(e: Event) {
                 class="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-slate-700 dark:text-slate-200 outline-none text-xs"
               />
             </div>
+          </div>
+
+          <!-- All-day Date Input -->
+          <div v-else-if="newScheduleMode === 'all_day'" class="flex items-center justify-between gap-2 text-xs">
+            <span class="text-slate-500 dark:text-slate-400">Ngày:</span>
+            <input
+              type="date"
+              :value="newStartTime ? localDateKey(new Date(newStartTime)) : ''"
+              @change="onModalRangeStartChange"
+              class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-slate-700 dark:text-slate-200 outline-none text-xs"
+            />
+          </div>
+
+          <!-- Multi-day Date Range Input -->
+          <div v-else class="flex items-center gap-1.5 text-xs">
+            <input
+              type="date"
+              :value="newStartTime ? localDateKey(new Date(newStartTime)) : ''"
+              @change="onModalRangeStartChange"
+              class="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-slate-700 dark:text-slate-200 outline-none text-xs"
+            />
+            <span class="text-slate-400">→</span>
+            <input
+              type="date"
+              :value="newEndTime ? localDateKey(new Date(newEndTime)) : ''"
+              @change="onModalRangeEndChange"
+              class="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-slate-700 dark:text-slate-200 outline-none text-xs"
+            />
+          </div>
+
+          <!-- Recurrence Selector -->
+          <div class="pt-1">
+            <RecurrenceSelector v-model="newRecurrenceRule" :compact="true" />
           </div>
 
           <!-- Priority Selector -->

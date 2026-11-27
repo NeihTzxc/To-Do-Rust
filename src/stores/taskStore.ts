@@ -37,6 +37,8 @@ const mockTasks: Task[] = [
     due_date: startOfToday + 18 * 3600000,
     start_time: startOfToday + 9 * 3600000, // 09:00
     end_time: startOfToday + 10.5 * 3600000, // 10:30
+    is_all_day: false,
+    recurrence_rule: null,
     created_at: now - 3600000,
     updated_at: now,
     deleted_at: null,
@@ -51,6 +53,8 @@ const mockTasks: Task[] = [
     due_date: startOfToday + 20 * 3600000,
     start_time: startOfToday + 13 * 3600000, // 13:00
     end_time: startOfToday + 15 * 3600000, // 15:00
+    is_all_day: false,
+    recurrence_rule: null,
     created_at: now - 7200000,
     updated_at: now,
     deleted_at: null,
@@ -65,6 +69,8 @@ const mockTasks: Task[] = [
     due_date: startOfToday + 22 * 3600000,
     start_time: startOfToday + 16 * 3600000, // 16:00
     end_time: startOfToday + 17.5 * 3600000, // 17:30
+    is_all_day: false,
+    recurrence_rule: null,
     created_at: now - 86400000,
     updated_at: now,
     deleted_at: null,
@@ -79,6 +85,8 @@ const mockTasks: Task[] = [
     due_date: null,
     start_time: null,
     end_time: null,
+    is_all_day: false,
+    recurrence_rule: null,
     created_at: now - 100000,
     updated_at: now,
     deleted_at: null,
@@ -93,6 +101,8 @@ const mockTasks: Task[] = [
     due_date: null,
     start_time: null,
     end_time: null,
+    is_all_day: false,
+    recurrence_rule: null,
     created_at: now - 200000,
     updated_at: now,
     deleted_at: null,
@@ -157,11 +167,11 @@ export const useTaskStore = defineStore('tasks', {
     },
 
     unscheduledTasks: (state): Task[] => {
-      return state.tasks.filter((t) => t.status !== 'done' && (!t.start_time || !t.end_time));
+      return state.tasks.filter((t) => t.status !== 'done' && !t.is_all_day && (!t.start_time || !t.end_time));
     },
 
     scheduledTasks: (state): Task[] => {
-      return state.tasks.filter((t) => !!(t.start_time && t.end_time));
+      return state.tasks.filter((t) => !t.is_all_day && !!(t.start_time && t.end_time));
     },
 
     pendingSyncCount: (state): number => {
@@ -408,6 +418,8 @@ export const useTaskStore = defineStore('tasks', {
             dueDate: payload.due_date ?? null,
             startTime: payload.start_time ?? null,
             endTime: payload.end_time ?? null,
+            isAllDay: payload.is_all_day ?? false,
+            recurrenceRule: payload.recurrence_rule ?? null,
           });
           this.tasks.unshift(created);
           return created;
@@ -422,6 +434,8 @@ export const useTaskStore = defineStore('tasks', {
             due_date: payload.due_date ?? null,
             start_time: payload.start_time ?? null,
             end_time: payload.end_time ?? null,
+            is_all_day: payload.is_all_day ?? false,
+            recurrence_rule: payload.recurrence_rule ?? null,
             created_at: now,
             updated_at: now,
             deleted_at: null,
@@ -439,6 +453,7 @@ export const useTaskStore = defineStore('tasks', {
 
     async updateTask(payload: UpdateTaskPayload): Promise<Task | null> {
       const idx = this.tasks.findIndex((t) => t.id === payload.id);
+      const prevStatus = idx !== -1 ? this.tasks[idx].status : 'todo';
       if (idx !== -1) {
         // Optimistic local update
         this.tasks[idx] = {
@@ -450,6 +465,8 @@ export const useTaskStore = defineStore('tasks', {
           due_date: payload.due_date ?? null,
           start_time: payload.start_time !== undefined ? payload.start_time : this.tasks[idx].start_time,
           end_time: payload.end_time !== undefined ? payload.end_time : this.tasks[idx].end_time,
+          is_all_day: payload.is_all_day !== undefined ? payload.is_all_day : this.tasks[idx].is_all_day,
+          recurrence_rule: payload.recurrence_rule !== undefined ? payload.recurrence_rule : this.tasks[idx].recurrence_rule,
           updated_at: Date.now(),
           sync_status: 'pending',
         };
@@ -466,9 +483,14 @@ export const useTaskStore = defineStore('tasks', {
             dueDate: payload.due_date ?? null,
             startTime: payload.start_time !== undefined ? payload.start_time : (this.tasks[idx]?.start_time ?? null),
             endTime: payload.end_time !== undefined ? payload.end_time : (this.tasks[idx]?.end_time ?? null),
+            isAllDay: payload.is_all_day !== undefined ? payload.is_all_day : (this.tasks[idx]?.is_all_day ?? false),
+            recurrenceRule: payload.recurrence_rule !== undefined ? payload.recurrence_rule : (this.tasks[idx]?.recurrence_rule ?? null),
           });
           if (idx !== -1) {
             this.tasks[idx] = updated;
+          }
+          if (prevStatus !== 'done' && updated.status === 'done' && updated.recurrence_rule) {
+            await this.fetchTasks();
           }
           return updated;
         }
@@ -525,6 +547,9 @@ export const useTaskStore = defineStore('tasks', {
           if (idx !== -1) {
             this.tasks[idx] = updated;
           }
+          if (nextStatus === 'done' && updated.recurrence_rule) {
+            await this.fetchTasks();
+          }
         }
       } catch (err: any) {
         console.error('Lỗi đổi trạng thái task:', err);
@@ -550,6 +575,9 @@ export const useTaskStore = defineStore('tasks', {
           const idx = this.tasks.findIndex((t) => t.id === id);
           if (idx !== -1) {
             this.tasks[idx] = updated;
+          }
+          if (newStatus === 'done' && updated.recurrence_rule) {
+            await this.fetchTasks();
           }
         }
       } catch (err: any) {
